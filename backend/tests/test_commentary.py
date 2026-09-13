@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest  # noqa: E402
+import time  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from backend.app.core import ai_config, commentary, keychain  # noqa: E402
@@ -332,11 +333,18 @@ def test_endpoint_shapes(monkeypatch):
     _profile()                                                         # ok
     _stub_chat(monkeypatch, lambda *a, **kw: _ok_json())
     r = client.post("/api/v1/commentary/regenerate")
-    assert r.status_code == 200 and r.json()["status"] == "ok"
-    assert set(r.json()["sections"]) == set(SECTIONS)
-
-    body = client.get("/api/v1/commentary").json()
-    assert body["status"] == "ok" and body["provenance"]["model"] == "m1"
+    # 异步触发：立即返回 generating（无历史批次 → regenerating=False），后台线程落库
+    assert r.status_code == 200 and r.json()["status"] == "generating"
+    assert r.json()["regenerating"] is False
+    for _ in range(200):                                               # 等后台批次落库
+        body = client.get("/api/v1/commentary").json()
+        if body["status"] == "ok":
+            break
+        time.sleep(0.05)
+    else:
+        pytest.fail("后台生成 10s 内未收敛为 ok")
+    assert set(body["sections"]) == set(SECTIONS)
+    assert body["provenance"]["model"] == "m1"
 
 
 def test_single_flight():

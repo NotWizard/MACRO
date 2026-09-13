@@ -319,8 +319,7 @@ export const api = {
   triggerCrclRefresh: (opts?: ReqOpts) => postJSON<JobStarted>('/crcl/refresh', opts),
   getSourcesHealth: (opts?: ReqOpts) => getJSON<SourcesHealth>('/sources/health', opts),
   getCommentary: (opts?: ReqOpts) => getJSON<Commentary>('/commentary', { ...NO_CACHE, ...opts }),
-  // 同步重新生成：最坏 9 次串行模型调用，前端 30s abort 后后端仍在跑——调用方需按
-  // 超时→轮询处理（CommentaryCard 已内置该逻辑）
+  // 异步重新生成：POST 立即返回 last-good + generating（后端后台线程落库），轮询收敛
   regenerateCommentary: (opts?: ReqOpts) => postJSON<Commentary>('/commentary/regenerate', opts),
   // 评论批次历史（M4c）：索引 / 单批详情
   getCommentaryHistory: (opts?: ReqOpts) => getJSON<CommentaryHistoryIndex>('/commentary/history', opts),

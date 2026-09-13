@@ -318,7 +318,7 @@ FastAPI（`:8000`，同时托管 Vue 构建产物），OpenAPI 文档 `http://lo
 | `GET /api/v1/signals/history` | 信号快照历史（倒序 + 相位翻转标注 flips）|
 | `GET /api/v1/real-estate?cities=…&frames=false` | 房地产三维评估（frames=false 仅 assessment，~0.5KB；默认完整三维帧 ~199KB）|
 | `GET /api/v1/commentary` | AI 评论当前批（overall + 6 板块 + 出处；ok/generating/empty/error）|
-| `POST /api/v1/commentary/regenerate` | 同步重新生成（🔒 令牌守门）|
+| `POST /api/v1/commentary/regenerate` | 异步触发重生成（🔒 令牌守门；立即返回 last-good + generating，前端轮询收敛）|
 | `GET /api/v1/commentary/history` | 评论批次历史索引（?ts=… 单批详情）|
 | `GET/POST/PUT/DELETE /api/v1/ai/profiles[…]` | AI 配置 profiles（写操作 🔒；密钥只进钥匙串）|
 | `POST /api/v1/ai/active` | 设默认 profile（🔒）|

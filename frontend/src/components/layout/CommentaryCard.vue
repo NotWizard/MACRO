@@ -12,10 +12,11 @@ import { useRefreshStore } from '@/stores/refresh'
 import { useCommentary } from '@/composables/useCommentary'
 import { api, ApiError } from '@/api/client'
 import type { Commentary } from '@/api/types'
+import MdLiteText from './MdLiteText.vue'
 
 const EMPTY: Commentary = { status: 'empty', msg: null, hint: null, stale: false, regenerating: false, overall: '', sections: {}, provenance: null }
 const POLL_INTERVAL_MS = 2000
-const POLL_DEADLINE_MS = 300_000   // 推理模型（kimi-k3）一次生成可达 3-4 分钟
+const POLL_DEADLINE_MS = 660_000   // 推理模型（kimi-k3）结构化整轮实测 4-6 分钟，留 10% 余量
 
 const data = ref<Commentary>({ ...EMPTY })
 const loading = ref(false)
@@ -66,7 +67,7 @@ function schedulePoll() {
     if (data.value.status !== 'generating') { pollNote.value = null; return }
     if (Date.now() >= pollUntil) {
       // 生成任务超出 deadline（LLM 进程可能已死）→ 报超时，停止轮询
-      data.value = { ...data.value, status: 'error', msg: '生成超时（2 分钟未完成），请重试' }
+      data.value = { ...data.value, status: 'error', msg: '生成超时（10 分钟未完成），请重试' }
       pollNote.value = null
       return
     }
@@ -145,8 +146,8 @@ watch(() => refresh.lastRefreshedAt, pull)
         {{ data.msg || '生成失败' }}
       </div>
 
-      <!-- overall commentary (ok，或 generating 时的上一版) -->
-      <div v-else class="text-sm text-text-2 whitespace-pre-line leading-relaxed">{{ data.overall }}</div>
+      <!-- overall commentary (ok，或 generating 时的上一版)；MdLiteText 渲染 **要点** 加粗结构 -->
+      <div v-else class="text-sm text-text-2 leading-relaxed"><MdLiteText :text="data.overall" /></div>
     </div>
 
     <!-- footer: provenance + regenerating/poll hints -->

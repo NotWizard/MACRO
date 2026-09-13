@@ -115,6 +115,10 @@ def drivers(monkeypatch):
     monkeypatch.setattr(refresh, "run_refresh", fake_run_refresh)
     monkeypatch.setattr(crcl_collect, "collect_all", fake_collect_all)
     monkeypatch.setattr(commentary, "generate", fake_generate)
+    # 端点在异步触发后回 get_current()；stub 掉它保持 hermetic（否则读真实 DB）
+    monkeypatch.setattr(commentary, "get_current", lambda: {
+        "status": "generating", "msg": "评论重新生成中…（以下为上一版）",
+        "regenerating": True, "overall": "上一版评论"})
     return calls, started
 
 
@@ -218,7 +222,9 @@ def test_post_crcl_refresh_with_token_starts_the_job(drivers, token):
 def test_post_regenerate_with_token_still_returns_the_commentary(drivers, token):
     calls, _ = drivers
     body = client.post(REGENERATE, headers=auth_header(token)).json()
-    assert body["overall"] == "生成的评论"
+    # 异步契约：立即返回 last-good + generating 标记（不再阻塞等新评论生成完）
+    assert body["status"] == "generating" and body["regenerating"] is True
+    assert body["overall"] == "上一版评论"
     assert calls == ["llm_generate"]
 
 

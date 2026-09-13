@@ -4,6 +4,7 @@
 // stale「数据已更新」徽章、fetch 失败保 last-good 文本 + msg 附注。
 import { computed, onMounted, onUnmounted } from 'vue'
 import { useCommentary } from '@/composables/useCommentary'
+import MdLiteText from './MdLiteText.vue'
 
 const props = defineProps<{ section: string }>()
 
@@ -56,7 +57,7 @@ const visible = computed(() => {
       </div>
       <template v-else>
         <!-- ok：板块文本；fetch 失败有 last-good 时保留文本，msg 作附注 -->
-        <div class="text-sm text-text-2 whitespace-pre-line leading-relaxed">{{ text }}</div>
+        <div class="text-sm text-text-2 leading-relaxed"><MdLiteText :text="text" /></div>
         <div v-if="data.msg" class="text-xs text-down mt-2">{{ data.msg }}</div>
       </template>
     </div>

@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+### AI 评论：重生成异步化（点击即时反馈）+ 结构化要点输出
+
+概述：① 「重新分析」点击后 30s 无任何反馈——`POST /commentary/regenerate` 同步阻塞等整轮模型调用（kimi-k3 实测 4-6 分钟），前端 30s 超时后才转轮询；② 评论整段堆砌无结构。本次改为异步触发 + 提示词输出格式契约 + 前端受控渲染。
+变更：
+  1. `commentary.generate()`：锁获取上移到调用方线程（消除「接口先读、worker 后抢锁」的竞态，立即返回的 get_current 必然带 generating 标记）；线程启动失败还锁防 busy 卡死；`_generate_impl` 保留为测试直调入口。
+  2. `POST /regenerate`：异步触发后立即返回 last-good + `regenerating: true`（实测 0.03s，旧版阻塞 30s+）。
+  3. **[修复]** 后台 worker 结果不再静默丢弃：error/异常写 api.log（该可观测性缺口让两轮失败完全无痕）。
+  4. **[修复]** 结构化调用超时 300s→600s、板块补调 150s→300s：新格式契约下 kimi-k3 整轮实测 ~5 分钟，旧 300s 卡线导致服务端三连败（in-process 险过是幸存者偏差）；前端轮询上限 5min→11min，修正超时报错文案（误写「2 分钟」）。
+  5. 提示词：各板块模板追加「输出格式」行（分 3-4 行、`**核心判断**` 开头）；overall 重构为 5 行固定标签（总判定/一致点/背离点/演化方向/风险信号）；user 消息末尾全局格式重申 + 一行示例（首版仅埋在模板中段，模型 0% 遵守；重申后 7/7 字段全遵守）。
+  6. 前端新增 `MdLiteText.vue`：按行分段 + `**…**`→`<strong>`（拒绝 v-html，模型输出不可信）；接入 CommentaryCard（overall）与 SectionCommentary（细分页），旧批次无标记时原样降级。
+  7. README：regenerate 端点描述同步为异步语义。
+验证：
+  1. pytest 375/375（两处旧同步契约测试改写为异步契约；新增锁持有断言）；vitest 42/42；impeccable 0 告警。
+  2. 真实 kimi-k3 端到端：POST 0.03s 返回 generating+last-good → ~5 分钟落库 7 字段全要点式（overall 5 标签行）；概览页/细分页截图核验加粗渲染。
+
+### AI commentary: async regenerate (instant feedback) + structured bullet output
+
+Summary: ① clicking 重新分析 gave no feedback for 30s — POST /regenerate blocked on the whole
+model round (kimi-k3 measures 4-6 min), the frontend only started polling after its 30s timeout;
+② commentary rendered as an unstructured wall of text. Now async trigger + prompt format contract
++ controlled frontend rendering.
+Changes:
+  1. `commentary.generate()`: lock acquisition moved to the caller thread (kills the race where
+     get_current read before the worker grabbed the lock); lock released if thread start fails.
+  2. `POST /regenerate`: fire-and-forget, immediately returns last-good + regenerating:true (0.03s measured; was 30s+ blocking).
+  3. **[fix]** background worker result no longer silently discarded — errors/exceptions go to api.log.
+  4. **[fix]** structured call timeout 300s→600s, per-section fallback 150s→300s (kimi-k3 measures ~5 min with the new format contract; the old 300s cliff caused three server-side failures); frontend poll deadline 5min→11min, stale "2 分钟" error copy fixed.
+  5. Prompts: per-section 输出格式 lines (3-4 lines, `**核心判断**` lead); overall restructured into 5 fixed labels (总判定/一致点/背离点/演化方向/风险信号); global format restatement + one-line example at the end of the user message (first version buried mid-template got 0% compliance; after restatement 7/7 fields comply).
+  6. New `MdLiteText.vue`: line splitting + `**…**`→`<strong>` (no v-html — model output is untrusted); wired into CommentaryCard and SectionCommentary; legacy batches without markers degrade gracefully.
+  7. README: regenerate endpoint description updated to async semantics.
+Verification:
+  1. pytest 375/375 (two legacy sync-contract tests rewritten to async; new lock-held assertion); vitest 42/42; impeccable detector 0 findings.
+  2. Real kimi-k3 end-to-end: POST returns generating+last-good in 0.03s → ~5 min later a fully bulleted 7-field batch lands (overall has the 5 label lines); overview + section page screenshots verified.
+
 ### AI 设置：删除确认交互重构 + 清理重复 profile
 
 概述：原删除确认是在按钮行原地插入「确认删除？」纯文案 + 两个同款按钮，把「设为默认」等其余按钮向右挤压，布局跳动且危险操作无视觉区分；同时清理重复的 kimi-bailian profile。

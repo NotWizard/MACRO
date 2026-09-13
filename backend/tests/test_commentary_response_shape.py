@@ -49,14 +49,17 @@ def test_already_generating_carries_valid_shape():
 
 
 def test_fire_and_forget_carries_valid_shape(monkeypatch):
-    """非阻塞触发的即时返回同样要满足 schema。"""
+    """非阻塞触发的即时返回同样要满足 schema；锁在调用方线程获取（stub 线程未跑 → 锁仍被持有）。"""
     monkeypatch.setattr(commentary.threading, "Thread", lambda *a, **k: type(
         "_T", (), {"start": lambda self: None}
     )())
     out = commentary.generate(blocking=False)
-
-    assert out["status"] == "generating"
-    _validate(out)
+    try:
+        assert out["status"] == "generating"
+        _validate(out)
+        assert commentary._gen_lock.locked()   # 调用方持锁 → 返回时 busy 信号已成立（无竞态）
+    finally:
+        commentary._gen_lock.release()         # stub 线程不会释放，测试手动还锁
 
 
 def test_unconfigured_returns_empty_with_hint(monkeypatch):

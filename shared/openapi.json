@@ -603,7 +603,7 @@
           "commentary"
         ],
         "summary": "Regenerate",
-        "description": "Re-run the model on current data (sync). Returns the new commentary.",
+        "description": "后台重生成，立即返回 last-good + generating 标记（前端轮询收敛）。\n\ngenerate(blocking=False) 在调用方线程持锁后才返回（见 commentary.generate 注释），\n因此这里的 get_current() 必然读到 generating 态，无竞态。",
         "operationId": "regenerate_api_v1_commentary_regenerate_post",
         "parameters": [
           {

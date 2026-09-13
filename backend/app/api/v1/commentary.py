@@ -1,7 +1,9 @@
 """Commentary endpoints — AI macro analysis text.
 
 GET  /commentary        → latest batch (or generating/empty status)
-POST /commentary/regenerate → sync generate (caller waits), returns new batch.
+POST /commentary/regenerate → 后台异步生成，立即返回当前态（last-good + generating 标记）；
+    前端经轮询收敛。旧版同步阻塞（blocking=True）要等整轮模型调用（kimi-k3 推理模型
+    可达 2-4 分钟），前端 30s 超时前毫无反馈。
     Token-guarded (F4): it spends money on paid LLM calls, and any page the
     user browsed could otherwise fire it with
     ``fetch(…, {method:'POST', mode:'no-cors'})`` — a billing attack that needs
@@ -27,8 +29,13 @@ def get_commentary():
 @router.post("/regenerate", response_model=Commentary,
              dependencies=[Depends(require_token)])
 def regenerate():
-    """Re-run the model on current data (sync). Returns the new commentary."""
-    return Commentary(**commentary.generate(blocking=True))
+    """后台重生成，立即返回 last-good + generating 标记（前端轮询收敛）。
+
+    generate(blocking=False) 在调用方线程持锁后才返回（见 commentary.generate 注释），
+    因此这里的 get_current() 必然读到 generating 态，无竞态。
+    """
+    commentary.generate(blocking=False)
+    return Commentary(**commentary.get_current())
 
 
 @router.get("/history")

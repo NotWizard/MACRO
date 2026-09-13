@@ -22,6 +22,7 @@ instead of blanking the card.
 
 import hashlib
 import json
+import logging
 import sqlite3
 import threading
 from datetime import datetime
@@ -35,6 +36,8 @@ from backend.app.core import ai_client, ai_config
 from backend.app.core.db import DB_PATH, _load_full, connect
 
 COMMENTARY_TABLE = "commentary"
+
+_log = logging.getLogger(__name__)
 
 SECTIONS = ("merrill", "credit", "inventory", "debt", "real_estate", "fiscal_external")
 
@@ -240,6 +243,8 @@ DEFAULT_TEMPLATES = {
         "写作结构：先点明当前阶段判定及两轴取值；再说明相对上期的边际迁移方向；"
         "若取值与阶段含义存在张力（如增长仍在趋势之上但通胀逼近阈值），指出并解释；"
         "末句给出该阶段在框架内的标准含义（如复苏=增长升+通胀降）。"
+        "输出格式：按上述结构分 3-4 行，每行一个要点，以「**核心判断**」开头"
+        "（双星号内为不超过 15 字的结论短语），后接带数值佐证的展开；不加序号与小标题。"
     ),
     "credit": (
         "为「信用周期」板块写 3-5 句研究备忘录。框架语义：以 M2 同比相对其 12 月均线的偏离"
@@ -248,6 +253,8 @@ DEFAULT_TEMPLATES = {
         "credit_impulse（信贷脉冲，M2 同比−12 月均线，pp）。"
         "写作结构：点明阶段与 M2 同比取值；用脉冲的符号与方向解释判定依据；"
         "若脉冲与阶段存在张力（如脉冲为正但趋势走弱），指出矛盾；末句说明该货币条件对实体融资的含义。"
+        "输出格式：按上述结构分 3-4 行，每行一个要点，以「**核心判断**」开头"
+        "（双星号内为不超过 15 字的结论短语），后接带数值佐证的展开；不加序号与小标题。"
     ),
     "inventory": (
         "为「库存周期」板块写 3-5 句研究备忘录。框架语义：以官方制造业 PMI 相对荣枯线 50 刻画需求，"
@@ -255,6 +262,8 @@ DEFAULT_TEMPLATES = {
         "快照字段：phase（当前阶段）、pmi_official（官方制造业 PMI，点）、ip_yoy（工业增加值同比 %）。"
         "写作结构：点明阶段及两项取值；说明需求（PMI）与生产（工业增加值）各自相对基准的位置；"
         "若二者方向背离（如需求收缩但生产仍强），指出矛盾及其对库存方向的含义。"
+        "输出格式：按上述结构分 3-4 行，每行一个要点，以「**核心判断**」开头"
+        "（双星号内为不超过 15 字的结论短语），后接带数值佐证的展开；不加序号与小标题。"
     ),
     "debt": (
         "为「债务周期」板块写 3-5 句研究备忘录。框架语义（达利欧口径）：以各部门杠杆率 4 季度变化"
@@ -264,6 +273,8 @@ DEFAULT_TEMPLATES = {
         "占 GDP %）、household_change_4q/non_fin_corp_change_4q/gov_change_4q（各自 4 季度变化，pp）。"
         "写作结构：点明总体阶段；分部门引用杠杆率取值与 4 季变化，指出哪个部门在驱动总体方向；"
         "若部门间方向不一致（如政府加杠杆对冲居民去杠杆），点明对冲结构。"
+        "输出格式：按上述结构分 3-4 行，每行一个要点，以「**核心判断**」开头"
+        "（双星号内为不超过 15 字的结论短语），后接带数值佐证的展开；不加序号与小标题。"
     ),
     "real_estate": (
         "为「房地产」板块写 3-5 句研究备忘录。框架语义：三维评分（0-100，越高越支撑需求）——"
@@ -274,6 +285,8 @@ DEFAULT_TEMPLATES = {
         "price_mom_12m（环比 12 月均值，100=持平）、lpr_5y（5 年期 LPR %）、rate_deviation_bp（偏离中位数，pp）。"
         "写作结构：点明综合分与最强/最弱维度及各自取值；用底层取值解释得分来源；"
         "若维度间存在张力（如利率宽松但价格动能仍弱），指出矛盾。"
+        "输出格式：按上述结构分 3-4 行，每行一个要点，以「**核心判断**」开头"
+        "（双星号内为不超过 15 字的结论短语），后接带数值佐证的展开；不加序号与小标题。"
     ),
     "fiscal_external": (
         "为「财政与外需」板块写 3-5 句研究备忘录。框架语义：财政收入/支出累计同比刻画财政姿态，"
@@ -282,14 +295,18 @@ DEFAULT_TEMPLATES = {
         "exports_yoy（出口同比 %）、ism（美国 ISM 制造业 PMI，点；荣枯线 50）。"
         "写作结构：点明财政收支两端的方向与取值（收>支或支>收的含义）；"
         "再评估外需（出口同比 + ISM 相对 50 的位置）；若内需与外需方向背离，指出并解释其政策含义。"
+        "输出格式：按上述结构分 3-4 行，每行一个要点，以「**核心判断**」开头"
+        "（双星号内为不超过 15 字的结论短语），后接带数值佐证的展开；不加序号与小标题。"
     ),
-    # overall：6-8 句跨板块综合
+    # overall：5 行标签式跨板块综合
     "overall": (
-        "写 6-8 句跨板块综合研判（不是逐板块复述）。要求：① 先给出当前宏观组合的一句话总判定"
-        "（增长×通胀×货币×杠杆的组合姿态）；② 指出六大框架之间最主要的一致点与背离点"
-        "（如货币宽松与库存去化的张力、财政发力与外需走弱的背离），并引用关键取值佐证；"
-        "③ 评估当前组合的可持续性与下一阶段最可能的演化方向；④ 点明最值得关注的一两个风险或"
-        "确认信号（如下次 PMI 是否重回荣枯线上方）；⑤ 全程不给投资建议，只做形势研判。"
+        "写跨板块综合研判（不是逐板块复述），输出 5 行，每行以双星号标签开头、后接带数值佐证的展开："
+        "「**总判定**」当前宏观组合的一句话姿态（增长×通胀×货币×杠杆的组合）；"
+        "「**一致点**」六大框架之间最主要的一致方向，引用关键取值佐证；"
+        "「**背离点**」最主要的张力（如货币宽松与库存去化、财政发力与外需走弱）；"
+        "「**演化方向**」当前组合的可持续性与下一阶段最可能的演化；"
+        "「**风险信号**」最值得关注的一两个风险或确认信号（如下次 PMI 能否重回荣枯线上方）。"
+        "全程不给投资建议，只做形势研判。"
     ),
 }
 
@@ -316,6 +333,15 @@ def _build_messages(snapshot: dict, tpls: dict) -> list[dict]:
     user = ("数据快照（JSON）：\n" + json.dumps(snapshot, ensure_ascii=False)
             + "\n\n写作要求（每条对应输出 JSON 的一个字段）：\n" + req
             + f"\n- overall：{tpls['overall']}"
+            # 格式契约在末尾全局重申（模型对末尾指令最敏感）；示例锚定预期形态。
+            + '\n\n输出格式（对所有文本字段强制，优先级高于「连贯成段」的默认写法和上方各写作要求的默认结构）：'
+              '\n① 每个字段值都是要点式多行文本：每行一个要点，以 **核心判断** 开头'
+              '（双星号内为不超过 15 字的结论短语），后接一句带数值佐证的展开；'
+              '② overall 固定 5 行，依次以 **总判定** **一致点** **背离点** **演化方向** **风险信号** 开头；'
+              '③ 字段值内的换行用 \\n 转义；'
+              '\n示例（credit 字段的值）："**货币条件中性偏紧** M2 同比 7.7%，较上期回落 0.3 个百分点，'
+              '信贷脉冲 -0.74 个百分点处于负区间。\\n**宽松确认尚未出现** 脉冲方向仍向下，'
+              '实体融资需求未见明显改善。"'
             + '\n\n只输出一个 JSON 对象，形如 {"sections": {"merrill": "…", "credit": "…", '
               '"inventory": "…", "debt": "…", "real_estate": "…", "fiscal_external": "…"}, '
               '"overall": "…"}，不要输出任何其他文字。')
@@ -420,9 +446,10 @@ def _call_structured_with_fallback(profile: dict, key: str,
     transport_failed = False
     for _ in range(2):                              # 首次 + 带错误反馈重试一次
         try:
-            raw = ai_client.call_chat(profile, key, messages, timeout=300.0)   # 推理模型（kimi-k3）单次要 2-4 分钟
-        except ai_client.AiError:
+            raw = ai_client.call_chat(profile, key, messages, timeout=600.0)   # 推理模型（kimi-k3）结构化整轮实测 4-6 分钟
+        except ai_client.AiError as e:
             transport_failed = True                 # 网络/http 错误：换格式重试与补调均无意义
+            _log.warning("commentary 结构化调用失败（stage=%s）：%s", e.stage, e)
             break
         parts, problems = _validate_structured(raw)
         if not problems:
@@ -438,8 +465,9 @@ def _call_structured_with_fallback(profile: dict, key: str,
             if _valid_text(best.get(name)):
                 continue
             try:
-                text = ai_client.call_chat(profile, key, _section_messages(name, snapshot, tpls), timeout=150.0)
-            except ai_client.AiError:
+                text = ai_client.call_chat(profile, key, _section_messages(name, snapshot, tpls), timeout=300.0)
+            except ai_client.AiError as e:
+                _log.warning("commentary 板块补调失败（%s，stage=%s）：%s", name, e.stage, e)
                 break                               # 同结构化循环：网络错误换板块重试无意义
             text = _unwrap_section(text, name)
             if _valid_text(text):
@@ -450,14 +478,25 @@ def _call_structured_with_fallback(profile: dict, key: str,
 def generate(blocking: bool = True) -> dict:
     """Snapshot → structured model call → persist 7-row batch.
 
-    blocking=True  → caller waits for the model call (manual POST).
-    blocking=False → fire-and-forget on a worker thread (startup/refresh).
+    blocking=True  → caller waits for the model call（测试/脚本直调）。
+    blocking=False → fire-and-forget on a worker thread (startup/refresh/手动 POST)。
+    锁在调用方线程获取：返回时 busy 信号已成立，紧跟其后的 get_current() 必然
+    看到 generating（旧实现线程内才抢锁，调用方先读会竞态出「旧 ok 态」）。
     """
+    if not _gen_lock.acquire(blocking=False):
+        # 已有生成在飞——不叠加第二个。锁被持有本身就是 busy 信号。
+        return {"status": "generating", "msg": "已有生成在进行中…"}
     if not blocking:
-        t = threading.Thread(target=_generate_impl, daemon=True)
-        t.start()
+        try:
+            threading.Thread(target=_generate_locked_and_release, daemon=True).start()
+        except Exception:
+            _gen_lock.release()   # 线程起不来必须还锁，否则 busy 卡死（F10 同类）
+            raise
         return {"status": "generating", "msg": "评论生成中…"}
-    return _generate_impl()
+    try:
+        return _generate_locked()
+    finally:
+        _gen_lock.release()
 
 
 def _configured() -> tuple[dict | None, str | None]:
@@ -468,10 +507,32 @@ def _configured() -> tuple[dict | None, str | None]:
 
 
 def _generate_impl() -> dict:
+    """锁自获取版（测试直调入口；正常链路请走 generate()）。"""
     if not _gen_lock.acquire(blocking=False):
         # Another generation is in flight — don't stack a second one. The lock
         # being held IS the busy signal, so there is nothing to flag here.
         return {"status": "generating", "msg": "已有生成在进行中…"}
+    try:
+        return _generate_locked()
+    finally:
+        _gen_lock.release()
+
+
+def _generate_locked_and_release() -> None:
+    """worker 线程入口：generate() 已在调用方持锁，这里只负责执行+释放。"""
+    try:
+        out = _generate_locked()
+        # 非阻塞路径的返回䛤无人接收——至少落日志，否则生成失败完全不可观测
+        if out.get("status") == "error":
+            _log.warning("commentary 后台生成失败：%s", out.get("msg"))
+    except Exception:
+        _log.exception("commentary 后台生成抛出未捕获异常")
+    finally:
+        _gen_lock.release()
+
+
+def _generate_locked() -> dict:
+    """前提：调用方已持有 _gen_lock（释放由 generate()/_generate_impl 的 finally 负责）。"""
     try:
         profile, key = _configured()
         if profile is None:
@@ -488,8 +549,6 @@ def _generate_impl() -> dict:
         return _persist_batch(snapshot, parts, profile, tpls)
     except Exception as e:
         return {"status": "error", "msg": f"生成失败：{type(e).__name__}: {e}"}
-    finally:
-        _gen_lock.release()
 
 
 # ── Persistence: 7 rows per batch (shared ts = batch key) ────────────────────
