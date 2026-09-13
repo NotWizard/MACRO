@@ -93,7 +93,7 @@ export interface AiProfile {
   endpoint: 'chat_completions' | 'responses'
   base_url: string
   model: string
-  temperature: number
+  temperature: number | null
   source: 'user' | 'env'
   has_key: boolean
 }

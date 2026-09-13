@@ -13,7 +13,7 @@ class ProfileBase(BaseModel):
     endpoint: Endpoint = "chat_completions"
     base_url: str = Field(min_length=1)
     model: str = Field(min_length=1)
-    temperature: float = Field(0.3, ge=0.0, le=2.0)
+    temperature: float | None = Field(0.3, ge=0.0, le=2.0)   # None = 请求不携带该参数（kimi-k3 等推理模型拒收，见 ai_client）
 
 
 class ProfileCreate(ProfileBase):

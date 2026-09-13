@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+### 修复：AI 设置「暂无配置 + 服务端内部错误」（profiles 列表 500）
+
+概述：`bailian` profile 为适配 kimi-k3 推理模型刻意存 `temperature: null`（请求不携带该参数，见 ai_client 注释），但 `ProfileBase.temperature` 声明为必填 float，`GET /ai/profiles` 序列化时 ValidationError → 500；前端表现为「暂无配置 + 服务端内部错误」。配置与钥匙串密钥实际从未丢失。
+变更：
+  1. `backend/app/schemas/ai.py`：`ProfileBase.temperature` → `float | None`（默认仍 0.3；None = 请求不携带 temperature 参数）。
+  2. `frontend/src/api/types.ts`：`temperature: number | null`。
+  3. `shared/openapi.json` 重新导出（drift 门禁同步）。
+验证：
+  1. pytest 375/375 通过。
+  2. `GET /ai/profiles` 200，bailian（active）+ kimi-bailian 均 `has_key: true`。
+  3. `POST /ai/profiles/bailian/test` ok，延迟 ~2.3s；AI 设置页两个 profile 正常展示。
+
+### Fix: AI settings "no profiles + internal error" (profiles list 500)
+
+Summary: the `bailian` profile intentionally stores `temperature: null` for kimi-k3 (reasoning
+models reject the param — see ai_client), but `ProfileBase.temperature` was a required float, so
+`GET /ai/profiles` failed pydantic serialization with a 500; the UI showed "no config + server
+error". Config file and keychain keys were never lost.
+Changes:
+  1. `backend/app/schemas/ai.py`: `ProfileBase.temperature` → `float | None` (default stays 0.3; None = omit the param from requests).
+  2. `frontend/src/api/types.ts`: `temperature: number | null`.
+  3. Re-exported `shared/openapi.json` (drift gate).
+Verification:
+  1. pytest 375/375 passed.
+  2. `GET /ai/profiles` 200 with bailian (active) + kimi-bailian, both `has_key: true`.
+  3. `POST /ai/profiles/bailian/test` ok at ~2.3s; AI settings page lists both profiles.
+
 ### 概览页综合信号 hero 重排（方案 A：结论归位 + 刻度瘦身）
 
 概述：修复综合信号卡「分数在最左、结论在最右、中间刻度带低信息且亮色下不可见」的布局散乱问题；分数与判读融合为左侧视觉单元，刻度尺只保留位置表达，芯片区加分隔线。

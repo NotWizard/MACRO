@@ -1682,9 +1682,16 @@
             "title": "Model"
           },
           "temperature": {
-            "type": "number",
-            "maximum": 2.0,
-            "minimum": 0.0,
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 2.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Temperature",
             "default": 0.3
           },
@@ -1771,9 +1778,16 @@
             "title": "Model"
           },
           "temperature": {
-            "type": "number",
-            "maximum": 2.0,
-            "minimum": 0.0,
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 2.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Temperature",
             "default": 0.3
           },
