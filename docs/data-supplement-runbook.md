@@ -16,7 +16,7 @@
 | 指标 | 硬编码位置 | 内容 | 当前到 | 更新方式 |
 |---|---|---|---|---|
 | NIFD 宏观杠杆率（居民/非金/政府/中央/地方/实体） | `scripts/nifd_leverage.py` `NIFD_DATA`（单一真相源，`01`/`03` 均 import） | 季度杠杆率(%) | 2026-06 (2026Q2) | §1 Agent 补充 |
-| 美国 ISM 制造业 PMI | `scripts/01_fetch_data.py` `_ISM_SUPPLEMENT`（Jin10 源冻结于 2025-08 后的官方值补充表） | 月度 PMI（点） | 2026-07 | §7 Agent 逐月补官方值后跑 01 |
+| 美国 ISM 制造业 PMI | `scripts/01_fetch_data.py` `_ISM_SUPPLEMENT`（Jin10 源冻结于 2025-08 后的官方值补充表） | 月度 PMI（点） | 2026-08 | §7 Agent 逐月补官方值后跑 01 |
 
 **非时序数据（配置/分类逻辑，无需定期更新）**：
 - 城市清单 `CITIES`（`frontend/src/pages/RealEstate.vue`）/ `_DEFAULT_CITIES`（`backend/app/api/v1/real_estate.py`）/ `01_fetch_data.py` 房价城市列表 —— 配置。
@@ -115,7 +115,7 @@
 | 月 | CPI / PPI / PMI | ~9-10 日 / PMI 月末 | 跑 `01_fetch_data.py` |
 | 月 | 社融 | ~15 日（主源滞后时自动走 PBoC XLSX 备用源） | 跑 `01_fetch_data.py` |
 | 月 | LPR | ~20 日 | 跑 `01_fetch_data.py` |
-| 月 | 美国 ISM 制造业 PMI | ~次月 1 日（ISM 官方 / PR Newswire） | akshare Jin10 源冻结于 2025-08；按 `_ISM_SUPPLEMENT`（01_fetch_data.py）逐月补官方值后跑 `01_fetch_data.py`；**2025-09~2026-07 已补齐**，后续逐月滚动维护 |
+| 月 | 美国 ISM 制造业 PMI | ~次月 1 日（ISM 官方 / PR Newswire） | akshare Jin10 源冻结于 2025-08；按 `_ISM_SUPPLEMENT`（01_fetch_data.py）逐月补官方值后跑 `01_fetch_data.py`；**2025-09~2026-08 已补齐**（2026-08=54.6，ISM 9/1 发布），后续逐月滚动维护 |
 
 ---
 

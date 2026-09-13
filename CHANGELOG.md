@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+### 手动补充：美国 ISM 制造业 PMI 2026-08 值入库
+
+概述：按数据补充运行手册 §7，将 ISM 官方 2026-09-01 发布的 8 月制造业 PMI（54.6，较 7 月 55.6 回落 1pp，仍连续第 8 个月扩张）录入 `_ISM_SUPPLEMENT` 并重跑采集入库。
+变更：
+  1. `scripts/01_fetch_data.py`：`_ISM_SUPPLEMENT` 追加 `("2026-08-01", 54.6)`。
+  2. `docs/data-supplement-runbook.md`：§0 硬编码清单与 §7 窗口表的 ISM 当前进度同步为 2026-08。
+  3. 全量采集先行（16 表闸门通过），本次增量采集（9/16 表）落库 ISM 新值。
+验证：
+  1. `external_demand` 表 `MAX(date)` 推进到 2026-08-01，`us_ism_pmi`=54.6。
+  2. 数值经 ISM 官方发布稿 + Reuters/PNC 等多源交叉确认。
+
+### Manual supplement: US ISM Manufacturing PMI 2026-08 (English)
+
+Summary: per data-supplement runbook §7, recorded the ISM August 2026 Manufacturing PMI (54.6,
+released 2026-09-01, down 1pp from July's 55.6, 8th consecutive month of expansion) into
+`_ISM_SUPPLEMENT` and re-ran the collection pipeline.
+Changes:
+  1. `scripts/01_fetch_data.py`: appended `("2026-08-01", 54.6)` to `_ISM_SUPPLEMENT`.
+  2. `docs/data-supplement-runbook.md`: synced ISM progress to 2026-08 in §0 inventory and §7 window table.
+  3. Full collection first (16 tables passed the gate), then this incremental run (9/16) landed the ISM value.
+Verification:
+  1. `external_demand.MAX(date)` advanced to 2026-08-01 with `us_ism_pmi`=54.6.
+  2. Value cross-confirmed via ISM official release + Reuters/PNC and other sources.
+
+
 ### README 全文一致性审查修正
 
 概述：项目定名 MACRO + 双主题 + M4 + CRCL 后，README 多处仍为旧口径，本次逐节核对现状修正。
