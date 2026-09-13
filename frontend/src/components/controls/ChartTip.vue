@@ -53,7 +53,7 @@ onScopeDispose(clearHide)
 
 <template>
   <span
-    class="inline-flex items-center align-middle ml-1 text-text-3 text-xs cursor-help select-none rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+    class="tip-trigger ml-1 text-text-3 cursor-help select-none rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
     tabindex="0"
     role="button"
     aria-label="查看图表说明"
@@ -64,7 +64,7 @@ onScopeDispose(clearHide)
     @focus="show"
     @blur="hide"
     @keydown.escape.stop="hide"
-  >ⓘ
+  ><svg class="tip-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.6" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="4.9" r="0.85" fill="currentColor"/><path d="M8 7.3v3.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
     <Teleport to="body">
       <div v-if="visible && text" :id="popId" ref="pop" role="tooltip" class="chart-tip-pop" :style="style"
            @mouseenter="clearHide" @mouseleave="hide">{{ text }}</div>
@@ -73,6 +73,20 @@ onScopeDispose(clearHide)
 </template>
 
 <style scoped>
+/* 触发器：SVG 图标（替代 Unicode 字形 ⓘ——字形随字体度量漂移，CJK 语境下
+   align-middle 按拉丁 x-height 对齐会偏低 ~0.15em）。
+   vertical-align 负补偿把图标视觉中心对齐到汉字视觉中心（基线上方 ~0.4em）。 */
+.tip-trigger {
+  display: inline-block;
+  line-height: 0;               /* 触发盒高度 = 图标高度，不随父行高膨胀 */
+  vertical-align: -0.14em;
+}
+.tip-icon {
+  display: block;
+  width: 1.05em;                /* em 随上下文字号缩放（11px 指标瓦 ~ 14px 卡片标题） */
+  height: 1.05em;
+}
+
 .chart-tip-pop {
   position: fixed;
   z-index: 9000;

@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+### 修复：Tooltip ⓘ 图标全站偏下（Unicode 字形 → SVG 图标 + 光学对齐）
+
+概述：ChartTip 的 ⓘ 是 Unicode 文本字形（U+24D8），`vertical-align: middle` 按拉丁 x-height 对齐，在中文 label（汉字视觉中心基线上方 ~0.4em）旁实测偏低 0.8–1.8px；且字形重心随字体漂移。改为绘制的 SVG info 图标，em 尺寸跟随上下文字号，`vertical-align: -0.14em` 光学补偿。
+变更：
+  1. `ChartTip.vue`：ⓘ 字形 → 内联 SVG（圆圈+i，currentColor 描边）；触发器改 `inline-block` + `line-height: 0` + `vertical-align: -0.14em`；图标 1.05em 随字号缩放。
+  2. `GraphCard.vue`：ChartTip 移入 h3 内部——在外层 div 会继承默认 16px 导致图标比 14px 标题大一圈。
+验证：
+  1. 浏览器实测中心偏差：KPI 瓦 +1.6→0.3px、信号历史标题 +1.8→0.1px、图表卡标题 0.1px（亚像素级）。
+  2. 悬停弹出气泡、焦点环、Escape 关闭回归通过；vitest 42/42；impeccable 0 告警。
+
+### Fix: tooltip info icon sat low site-wide (Unicode glyph → SVG + optical alignment)
+
+Summary: ChartTip's ⓘ was a Unicode text glyph (U+24D8); `vertical-align: middle` aligns to the
+Latin x-height, so next to CJK labels (optical center ~0.4em above baseline) it measured 0.8–1.8px
+low, and glyph metrics drift with the font. Replaced with a drawn SVG info icon, em-sized to the
+surrounding text, with `vertical-align: -0.14em` optical compensation.
+Changes:
+  1. `ChartTip.vue`: glyph → inline SVG (circle + i, currentColor stroke); trigger is now
+     `inline-block` + `line-height: 0` + `vertical-align: -0.14em`; icon 1.05em scales with context.
+  2. `GraphCard.vue`: ChartTip moved inside the h3 — in the wrapper div it inherited the default
+     16px font-size, making the icon oversized next to the 14px title.
+Verification:
+  1. Measured center offsets: KPI tiles +1.6→0.3px, history heading +1.8→0.1px, chart card titles 0.1px (sub-pixel).
+  2. Hover popup, focus ring, Escape close regression-checked; vitest 42/42; impeccable detector 0 findings.
+
 ### AI 评论：重生成异步化（点击即时反馈）+ 结构化要点输出
 
 概述：① 「重新分析」点击后 30s 无任何反馈——`POST /commentary/regenerate` 同步阻塞等整轮模型调用（kimi-k3 实测 4-6 分钟），前端 30s 超时后才转轮询；② 评论整段堆砌无结构。本次改为异步触发 + 提示词输出格式契约 + 前端受控渲染。

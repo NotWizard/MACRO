@@ -8,9 +8,9 @@ defineEmits<{ retry: [] }>()
 <template>
   <section class="bg-card border border-border rounded-2xl p-5">
     <div v-if="title" class="mb-3">
-      <!-- icon hugs the title's right side (was pushed to far right by justify-between) -->
-      <h3 class="inline text-sm font-semibold text-text">{{ title }}</h3>
-      <ChartTip v-if="tip" :text="tip" />
+      <!-- icon hugs the title's right side (was pushed to far right by justify-between)；
+           必须在 h3 内部——图标 em 尺寸跟随标题字号（在外层 div 会继承到默认 16px 而偏大） -->
+      <h3 class="inline text-sm font-semibold text-text">{{ title }}<ChartTip v-if="tip" :text="tip" /></h3>
     </div>
     <!-- The chart slot stays mounted across every load: loading/error render as
          ABSOLUTE overlays so the ECharts instance is never disposed (preserving
