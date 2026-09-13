@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### AI 设置：删除确认交互重构 + 清理重复 profile
+
+概述：原删除确认是在按钮行原地插入「确认删除？」纯文案 + 两个同款按钮，把「设为默认」等其余按钮向右挤压，布局跳动且危险操作无视觉区分；同时清理重复的 kimi-bailian profile。
+变更：
+  1. `AISettings.vue`：确认态改为整行动作区原地替换——「确认删除「name」？密钥将一并移除。」说明 + 红色描边「确认删除」+「取消」，其余按钮隐藏，零挤压零跳动；新增 `btnDangerCls`（down 令牌）。
+  2. 数据：删除重复 profile `kimi-bailian`（与 bailian 同端点同模型 kimi-k3，仅 temperature 不同），钥匙串密钥连带清除；`bailian` 保持默认。
+验证：
+  1. 浏览器实测确认态无布局跳动；点「确认删除」后 kimi-bailian 从配置与钥匙串均移除，`GET /ai/profiles` 仅剩 bailian（active，has_key=true）。
+  2. vitest 42/42 通过；impeccable 检测器 0 告警。
+
+### AI settings: delete-confirm rework + duplicate profile cleanup
+
+Summary: the old delete confirm inserted plain "确认删除？" text plus two identical buttons inline,
+pushing the remaining buttons right with a jarring reflow and no visual distinction for the
+destructive action; also removed the duplicate kimi-bailian profile.
+Changes:
+  1. `AISettings.vue`: confirm state now swaps the row's whole action cluster in place —
+     "确认删除「name」？密钥将一并移除。" copy + red-outlined 确认删除 + 取消， other buttons hidden, zero reflow; new `btnDangerCls` (down tokens).
+  2. Data: removed duplicate `kimi-bailian` profile (same endpoint/model as bailian), keychain entry purged; `bailian` stays the active default.
+Verification:
+  1. Browser-verified zero reflow in confirm state; after 确认删除， kimi-bailian gone from config and keychain; `GET /ai/profiles` returns only bailian (active, has_key=true).
+  2. vitest 42/42 passed; impeccable detector: 0 findings.
+
 ### 修复：AI 设置「暂无配置 + 服务端内部错误」（profiles 列表 500）
 
 概述：`bailian` profile 为适配 kimi-k3 推理模型刻意存 `temperature: null`（请求不携带该参数，见 ai_client 注释），但 `ProfileBase.temperature` 声明为必填 float，`GET /ai/profiles` 序列化时 ValidationError → 500；前端表现为「暂无配置 + 服务端内部错误」。配置与钥匙串密钥实际从未丢失。

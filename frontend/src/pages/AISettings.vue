@@ -16,6 +16,7 @@ const PRESET_LABELS: Record<AiProfile['preset'], string> = {
   dashscope: '通义 DashScope', deepseek: 'DeepSeek', openrouter: 'OpenRouter', custom: '自定义',
 }
 const btnCls = 'text-xs px-2.5 py-1 rounded-lg border border-border hover:border-border-hi text-text-2 transition-colors disabled:opacity-50'
+const btnDangerCls = 'text-xs px-2.5 py-1 rounded-lg border border-down text-down hover:bg-down-soft transition-colors'
 const inputCls = 'w-full bg-surface border border-border rounded-lg px-2.5 py-1.5 text-sm text-text placeholder:text-text-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent'
 
 // ── 页内分区（平铺三大块改 tab）─────────────────────────────────────────────
@@ -213,25 +214,28 @@ async function submit() {
         </div>
         <div class="text-[11px] text-text-3 mt-0.5 tnum">{{ p.preset }} · {{ p.endpoint }} · {{ p.model }}</div>
         <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
-          <button :class="btnCls" :disabled="testing === p.name" @click="runTest(p.name)">
-            {{ testing === p.name ? '测试中…' : '测试' }}
-          </button>
-          <template v-if="p.source === 'user'">
-            <button :class="btnCls" @click="openEdit(p, $event.target)">编辑</button>
-            <template v-if="confirmName === p.name">
-              <span class="text-xs text-warn">确认删除？</span>
-              <button :class="btnCls" @click="remove(p.name)">确认</button>
-              <button :class="btnCls" @click="confirmName = null">取消</button>
-            </template>
-            <button v-else :class="btnCls" @click="confirmName = p.name">删除</button>
+          <!-- 删除确认态：整行动作区原地替换为确认簇（同锚点、宽度相近），不再插入文案把其余按钮挤右 -->
+          <template v-if="confirmName === p.name">
+            <span class="text-xs text-text-3">确认删除「{{ p.name }}」？密钥将一并移除。</span>
+            <button :class="btnDangerCls" @click="remove(p.name)">确认删除</button>
+            <button :class="btnCls" @click="confirmName = null">取消</button>
           </template>
-          <button v-if="active !== p.name" :class="btnCls" @click="setActive(p.name)">设为默认</button>
-          <span role="status">
-            <span v-if="testResults[p.name]?.ok" class="text-xs text-up tnum">✓ {{ testResults[p.name].latency_ms }}ms</span>
-            <span v-else-if="testResults[p.name]" class="text-xs text-down" :title="testResults[p.name].error ?? ''">
-              ✗ {{ testResults[p.name].error }}
+          <template v-else>
+            <button :class="btnCls" :disabled="testing === p.name" @click="runTest(p.name)">
+              {{ testing === p.name ? '测试中…' : '测试' }}
+            </button>
+            <template v-if="p.source === 'user'">
+              <button :class="btnCls" @click="openEdit(p, $event.target)">编辑</button>
+              <button :class="btnCls" @click="confirmName = p.name">删除</button>
+            </template>
+            <button v-if="active !== p.name" :class="btnCls" @click="setActive(p.name)">设为默认</button>
+            <span role="status">
+              <span v-if="testResults[p.name]?.ok" class="text-xs text-up tnum">✓ {{ testResults[p.name].latency_ms }}ms</span>
+              <span v-else-if="testResults[p.name]" class="text-xs text-down" :title="testResults[p.name].error ?? ''">
+                ✗ {{ testResults[p.name].error }}
+              </span>
             </span>
-          </span>
+          </template>
         </div>
       </div>
     </div>
