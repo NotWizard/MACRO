@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### 概览页综合信号 hero 重排（方案 A：结论归位 + 刻度瘦身）
+
+概述：修复综合信号卡「分数在最左、结论在最右、中间刻度带低信息且亮色下不可见」的布局散乱问题；分数与判读融合为左侧视觉单元，刻度尺只保留位置表达，芯片区加分隔线。
+变更：
+  1. `Overview.vue` hero：判读拆为「结论（升至 text-lg 半粗、随信号色） + 副标题（text-xs 灰）」，与大数字同区堆叠。
+  2. 刻度尺：刻度文字只留两端（-4 看空 / +4 看多），中间 0 改为尺上 tick；marker 加大并加同相光环；`aria-hidden` 标注（信息已由文字提供）。
+  3. **[修复]** 刻度尺渐变在亮/暗主题下均不可见的存量 bug：主题色板为 `var()` 引用，Tailwind 透明度修饰符（`from-x/25` 等）静默不生成规则；改用 scoped CSS `color-mix` 定比混合，双主题自适应。
+  4. 芯片行与 hero 主区之间新增顶部分隔线，明确「结论 / 依据」层次。
+验证：
+  1. `npm run build`（含 vue-tsc）0 error；vitest 42/42 通过。
+  2. 浏览器实测亮色 / 暗色 / 窄视口（640px 换行）三态截图核验。
+  3. impeccable 检测器 0 告警。
+
+### Overview signal hero rework (Option A: verdict fused with score, slimmed scale)
+
+Summary: the composite-signal card had the score at far left, verdict at far right, and a wide
+low-information scale in between that was invisible in the light theme; score and verdict are now
+one visual unit, the scale only carries position, and the chips row is separated by a divider.
+Changes:
+  1. `Overview.vue` hero: verdict split into title (text-lg semibold, signal-toned) + subtitle (text-xs), stacked with the big score.
+  2. Scale: end-only labels (-4 看空 / +4 看多), center 0 became an on-bar tick; larger marker with tone-matched halo; marked `aria-hidden` (info already in text).
+  3. **[fix]** Pre-existing invisible scale bar: palette colors are `var()` refs so Tailwind opacity modifiers (`from-x/25`) silently generated no rule; now scoped CSS `color-mix` blends, adaptive to both themes.
+  4. Divider line added between hero main row and framework chips.
+Verification:
+  1. `npm run build` (with vue-tsc) 0 errors; vitest 42/42 passed.
+  2. Browser-verified light / dark / narrow (640px wrap) screenshots.
+  3. impeccable detector: 0 findings.
+
 ### 手动补充：美国 ISM 制造业 PMI 2026-08 值入库
 
 概述：按数据补充运行手册 §7，将 ISM 官方 2026-09-01 发布的 8 月制造业 PMI（54.6，较 7 月 55.6 回落 1pp，仍连续第 8 个月扩张）录入 `_ISM_SUPPLEMENT` 并重跑采集入库。

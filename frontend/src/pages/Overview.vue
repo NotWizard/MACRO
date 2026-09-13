@@ -91,6 +91,11 @@ const scoreZh = computed(() => {
   for (const [lo, text] of SCORE_ZH) if (s >= lo) return text
   return SCORE_ZH[SCORE_ZH.length - 1][1]
 })
+/** 判读拆为「结论 / 副标题」两段（scoreZh 形如「温和看多 —— 增长信号占优」），供 hero 分层展示。 */
+const scoreVerdict = computed(() => {
+  const [title, sub] = scoreZh.value.split(' —— ')
+  return { title, sub }
+})
 const scoreTone = computed(() => {
   const s = signals.value?.composite_score ?? 0
   return s > 0 ? 'text-up' : s < 0 ? 'text-down' : 'text-text'
@@ -177,29 +182,36 @@ const fmtCorr = (k: string) => lagNum(k) !== null ? lagNum(k)!.toFixed(2) : '—
       <div class="space-y-5">
         <!-- 综合信号 hero：分数 + 相位芯片 + 刻度尺，一眼读懂当前宏观姿态 -->
         <section class="relative overflow-hidden bg-card border border-border rounded-2xl px-6 py-5">
-          <div class="flex flex-wrap items-center gap-x-8 gap-y-4">
-            <div class="flex items-baseline gap-3">
-              <div class="text-[11px] font-semibold tracking-[0.14em] text-text-3 select-none">综合信号</div>
-              <div class="text-4xl font-extrabold tnum leading-none" :class="scoreTone">
-                {{ (signals?.composite_score ?? 0) > 0 ? '+' : '' }}{{ signals?.composite_score ?? '—' }}
+          <div class="flex flex-wrap items-center gap-x-10 gap-y-4">
+            <!-- 分数 + 判读：一个视觉单元，结论与分数同级，副标题降级 -->
+            <div>
+              <div class="flex items-center gap-1 text-[11px] font-semibold tracking-[0.14em] text-text-3 select-none">
+                综合信号<ChartTip :text="signalTip" />
               </div>
-              <ChartTip :text="signalTip" />
+              <div class="mt-2 flex items-baseline gap-2.5">
+                <span class="text-4xl font-extrabold tnum leading-none" :class="scoreTone">
+                  {{ (signals?.composite_score ?? 0) > 0 ? '+' : '' }}{{ signals?.composite_score ?? '—' }}
+                </span>
+                <span class="text-lg font-semibold leading-none" :class="scoreTone">{{ scoreVerdict.title }}</span>
+              </div>
+              <div class="mt-1.5 text-xs text-text-3">{{ scoreVerdict.sub }}</div>
             </div>
-            <div class="flex-1 min-w-[220px] max-w-md">
-              <div class="relative h-1.5 rounded-full bg-gradient-to-r from-down/25 via-white/10 to-up/25">
+            <!-- 刻度尺：只表达「位置」，刻度仅留两端，中心 0 改为 tick -->
+            <div class="flex-1 min-w-[240px] max-w-md" aria-hidden="true">
+              <div class="signal-track relative h-2 rounded-full">
+                <span class="signal-tick absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-px h-3" />
                 <span
-                  class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 border-bg shadow transition-all duration-300"
-                  :class="(signals?.composite_score ?? 0) > 0 ? 'bg-up' : (signals?.composite_score ?? 0) < 0 ? 'bg-down' : 'bg-text-2'"
+                  class="signal-marker absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full border-2 border-bg transition-all duration-300"
+                  :class="(signals?.composite_score ?? 0) > 0 ? 'bg-up text-up' : (signals?.composite_score ?? 0) < 0 ? 'bg-down text-down' : 'bg-text-2 text-text-2'"
                   :style="{ left: scorePos + '%' }"
                 />
               </div>
               <div class="flex justify-between mt-1.5 text-[10px] tnum text-text-4">
-                <span>-4 看空</span><span>0</span><span>+4 看多</span>
+                <span>-4 看空</span><span>+4 看多</span>
               </div>
             </div>
-            <div class="text-sm text-text-2 font-medium">{{ scoreZh }}</div>
           </div>
-          <div v-if="fwChips.length" class="flex flex-wrap gap-2 mt-4">
+          <div v-if="fwChips.length" class="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border/60">
             <span
               v-for="c in fwChips" :key="c.key"
               class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border bg-surface text-[11px] text-text-2"
@@ -274,3 +286,26 @@ const fmtCorr = (k: string) => lagNum(k) !== null ? lagNum(k)!.toFixed(2) : '—
     </PageState>
   </div>
 </template>
+
+<style scoped>
+/* 信号刻度尺：主题色板是 var() 引用，Tailwind 的透明度修饰符（from-x/25 等）对其不生效
+   （静默不生成规则，本区块曾因此亮色下不可见）；改用 color-mix 直接取主题色定比混合，
+   亮/暗双主题自适应。 */
+.signal-track {
+  background-image: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--down) 26%, transparent),
+    color-mix(in srgb, var(--text-4) 14%, transparent),
+    color-mix(in srgb, var(--up) 26%, transparent)
+  );
+}
+.signal-tick {
+  background: color-mix(in srgb, var(--text-4) 55%, transparent);
+}
+/* 光环用 currentColor（由 marker 的 text-up/down/text-2 类提供），与点色同相 */
+.signal-marker {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.18),
+    0 0 0 4px color-mix(in srgb, currentColor 22%, transparent);
+}
+</style>
