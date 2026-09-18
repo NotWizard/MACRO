@@ -19,6 +19,7 @@ const groups = [
   {
     label: '追踪与配置',
     items: [
+      { to: '/index-dividend', label: '红利低波估值', icon: '❖' },
       { to: '/crcl-monitor', label: 'CRCL 监控', icon: '◒' },
       { to: '/ai-settings', label: 'AI 设置', icon: '⚙' },
     ],

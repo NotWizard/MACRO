@@ -138,6 +138,9 @@
 | 美国 ISM 制造业 PMI | **Agent 网页获取** | ISM 官方 / PR Newswire 月度发布（Workflow 逐月读取录入 `_ISM_SUPPLEMENT`） |
 | CRCL 稳定币流通量/总盘/美债收益率/行情估值 | **API** | DefiLlama / Treasury.gov / AKShare / yfinance（启动+手动自动采集，见 §9.1） |
 | CRCL 季报拆解/事件日历/标志位 | **手工 JSON** | Circle 新闻稿/财报会、Fed 日历、立法进展（`data/crcl_fundamentals.json`、`data/crcl_events.json`，见 §9.2） |
+| 红利低波估值（H30269）价格/全收益/PE/股息率锚 | **API** | 中证指数 `index-perf` / `indicator.xls`（见 §10） |
+| 红利低波 PB / PE 交叉校验 | **API** | 蛋卷 `index_eva`（推定口径，见 §10） |
+| 10Y 国债日频 | **API** | 中债信息网直连（日频表 `bond_yield_daily`，见 §10） |
 
 **Agent 网页获取的维护**：上述三项均为官方发布值，录入显式补充表；每发布周期由 Agent 按 §7 窗口读取官方网页/公报补一行，跑 `01_fetch_data.py` 入库。API 数据无需此步骤。
 | 季 | GDP（累计季度） | 季后 ~1 个月（Q3≈10 月） | 跑 `01_fetch_data.py`（解析器已支持累计季度） |
@@ -198,6 +201,60 @@
 - `total_revenue_m` 当前量级 600–900；单季环比变化 >±20% 需复核。
 - `nonreserve_share_pct` 应在 0–20；`distribution_cost_ratio_pct` 应在 40–75。
 - EURC 无需手工（已自动采集）；若手工值与自动序列冲突，以自动序列为准。
+
+---
+
+## 10. 红利低波估值（H30269）—— 全自动（采集 + 重建 + 质量门）
+
+依据《指数股息率与PE数据获取及加工规范 v1.0》（`~/Downloads/SCHD_analysis/`）实现，
+采集模块 `scripts/index_dividend.py`，加工模块 `analysis/index_dividend.py`，
+前端独立页面「红利低波估值」（`/index-dividend`）。
+
+### 10.1 表与源
+
+| 表 | 频率 | 源 | 说明 |
+|---|---|---|---|
+| `idx_price_daily` | 日 | 中证 `index-perf` | H30269 价格 + H20269 全收益收盘 + `peg`（推定 PE） |
+| `idx_valuation_official` | 日 | 中证 `indicator.xls` | 官方 PE1/PE2/DP1/DP2 真值锚，仅 20 日滚动 → 每日 upsert 攒历史 |
+| `idx_valuation_dj` | 周 | 蛋卷 `index_eva` | PB/PE 历史 2016-09 起（PB 唯一可自建免费源；中证只在月度 PDF 发 PB） |
+| `bond_yield_daily` | 日 | 中债 historyQuery | 10Y 国债日频（利差分母；与月频 `bond_yield` 表并存不混用） |
+| `derived_index_daily` | 日 | 衍生 | TR/PR 重建股息率 + 校准 + 利差 + 质量门 |
+
+### 10.2 全自动边界
+
+全部为 API 自动采集，无手工项。refresh / launchd 日更自动覆盖（market 型，恒在抓取计划内）。
+中证交易日收盘后发布当日数据，日更抓的是 T-1，时效无损失。
+
+### 10.3 关键运维点（踩坑记录）
+
+1. **WAF 限流**：中证接口连续 ~40 请求封 10 分钟以上（2026-09-18 实测精确复现，
+   第 41 个请求触发 403）。已内置：Referer 头 + 2s 间隔 + 每 10 次喘息 15s +
+   403 退避 30/60/90/120s + `data/cache/csindex/` 逐年磁盘缓存（历史年永久、当年当日有效），
+   bootstrap 被封后下一轮断点续抓。若持续 403：等 10 分钟再刷新，勿轰炸。
+2. **日期格式**：`index-perf` 只接受 `YYYYMMDD`，`YYYY-MM-DD` 跨年区间静默返错。
+3. **indicator.xls 是 OLE2 老式 Excel**，必须 `read_excel`，`read_csv` 会 `UnicodeDecodeError`。
+4. **口径**：重建股息率复现的是官方 **DP2**（计算用股本），非 DP1；两者差 ~13%。
+   PE/股息率必须同口径配对（PE2↔DP2），跨口径混用会产生 ~4% 的 PE 偏差。
+5. **派息率探针（G2）**：`PE×DP` 应稳定（20 日 std <0.1pp）；跳变 >1pp 说明上游口径变更。
+6. **12 月年度调样**：调样后数周 G1 天然偏弱（重建反映旧成分股、官方反映新成分股），
+   已降级为告警；不要在这时误判管线故障。
+7. **股息率单日噪音**：除息密集期（如 9 月）重建值可能单日偏离官方 ±2-3%，
+   前端瓦片的「当前值」取官方锚，分位在重建历史上计算（校准已均值对齐）。
+
+### 10.4 分位口径
+
+分位**查询时计算**（不落库）：预设窗口 成立以来/1/3/5/10 年 + 任意自定义起止。
+各指标「成立以来」实际起点不同：股息率/利差 2007-01（TTM 窗建立后）、
+PE 2013-12（`peg` 字段起点）、PB 2016-09（蛋卷覆盖起点）——前端瓦片如实标注
+窗口起止与观测数。窗口充足性按时间跨度覆盖率判定（≥90%），周频 PB 的 10 年窗有效。
+
+### 10.5 触发后校验
+
+- `SELECT MAX(date) FROM idx_price_daily` 应推进到最近交易日；
+- `idx_gate_status` 四门应全 ok（G1 ratio∈[0.97,1.03]、corr>0.75）；
+- 页面「数据健康」区应显示四源最新日期；
+- 附录 B 回归向量（规范 §附录B）：2026-09-17 收盘后 股息率 4.85%（官方锚）、
+  利差 3.16pp、重建/DP2 ratio 1.008、corr 0.852、k≈0.9921。
 
 ---
 

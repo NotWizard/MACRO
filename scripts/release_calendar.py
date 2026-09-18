@@ -43,6 +43,12 @@ TABLE_CALENDAR = {
     "fiscal": dict(kind="release", months=tuple(range(1, 13)), days=[(10, 25)], channel="nbs-akshare"),
     # 海关总署约每月 7–14 日发布上月进出口（美元口径）
     "external_demand": dict(kind="release", months=tuple(range(1, 13)), days=[(7, 18)], channel="nbs-akshare"),
+    # 红利低波(H30269)估值：日频市场数据，永远抓。中证交易日收盘后发布，
+    # launchd 上午日更抓的是 T-1 数据，时效无损失
+    "idx_price_daily": dict(kind="market", months=(), days=[], channel="csindex"),
+    "idx_valuation_official": dict(kind="market", months=(), days=[], channel="csindex"),
+    "idx_valuation_dj": dict(kind="market", months=(), days=[], channel="danjuan"),
+    "bond_yield_daily": dict(kind="market", months=(), days=[], channel="chinabond"),
 }
 
 

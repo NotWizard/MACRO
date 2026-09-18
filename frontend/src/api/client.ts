@@ -16,7 +16,7 @@
 //     TTL, invalidated by invalidateCache() on every successful data refresh;
 //   · failures throw ApiError with a machine-readable `kind` so the UI can name
 //     the category instead of dumping `500 {"detail":...}` at the user.
-import type { DerivedFrame, CycleFrame, SignalSummary, SignalHistory, RefreshResult, RealEstateResponse, Commentary, SourcesHealth, CrclOverview, CrclMetric, CrclEvent, CrclAlertRule, CrclLogRow, CrclFundamentals, AiProfile, AiProfileList, AiTestResult, AiTemplatesOut, AiTemplatesSaved, CommentaryHistoryIndex } from './types'
+import type { DerivedFrame, CycleFrame, SignalSummary, SignalHistory, RefreshResult, RealEstateResponse, Commentary, SourcesHealth, CrclOverview, CrclMetric, CrclEvent, CrclAlertRule, CrclLogRow, CrclFundamentals, AiProfile, AiProfileList, AiTestResult, AiTemplatesOut, AiTemplatesSaved, CommentaryHistoryIndex, IndexDividendSummary, IndexDividendHealth } from './types'
 
 export const BASE = '/api/v1'
 
@@ -346,4 +346,11 @@ export const api = {
   getCrclAlerts: (opts?: ReqOpts) => getJSON<{ rules: CrclAlertRule[]; history: CrclLogRow[] }>('/crcl/alerts', opts),
   getCrclLogs: (limit = 60, opts?: ReqOpts) => getJSON<{ logs: CrclLogRow[] }>(`/crcl/logs?limit=${limit}`, opts),
   getCrclFundamentals: (opts?: ReqOpts) => getJSON<CrclFundamentals>('/crcl/fundamentals', opts),
+  // 红利低波估值（H30269）：分位查询时计算，支持自定义窗口（pct_start/pct_end）
+  getIndexDividendSeries: (start?: string, end?: string, opts?: ReqOpts) =>
+    getJSON<DerivedFrame>(`/index-dividend/series${qs([['start', start], ['end', end]])}`, opts),
+  getIndexDividendSummary: (pctStart?: string, pctEnd?: string, opts?: ReqOpts) =>
+    getJSON<IndexDividendSummary>(`/index-dividend/summary${qs([['pct_start', pctStart], ['pct_end', pctEnd]])}`, opts),
+  getIndexDividendHealth: (opts?: ReqOpts) =>
+    getJSON<IndexDividendHealth>('/index-dividend/health', opts),
 }

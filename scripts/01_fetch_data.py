@@ -46,6 +46,7 @@ from signal_history import append_signal_history  # noqa: E402
 from nifd_leverage import nifd_supplement_df  # noqa: E402
 from pbc_shrzgm import pbc_shrzgm_supplement_df  # noqa: E402 — 单一真相源（01+04 共用）
 from _specs import DATE_PARSERS, FETCH_SPECS, pick_curve_table, to_num  # noqa: E402
+import index_dividend  # noqa: E402 — 红利低波(H30269)估值采集（中证+蛋卷+中债日频）
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "macro_data.db")
 
@@ -151,6 +152,12 @@ TABLE_TIMEOUT_S = {
     "fiscal": 180.0,
     "household_income": 180.0,
     "external_demand": 180.0,
+    # idx_price_daily bootstrap 需按年分页 ~42 次请求（含 WAF 限速间隔/喘息），
+    # 一次性全量可能 ~3-5 分钟；增量稳态仅 ~4 次请求。bond_yield_daily bootstrap
+    # 逐年 21 请求同理。
+    "idx_price_daily": 600.0,
+    "bond_yield_daily": 600.0,
+    "idx_valuation_dj": 180.0,
 }
 # 整轮墙钟上限：无论多少表挂住，进程一定会结束（API 侧另有 REFRESH_TIMEOUT_S=300
 # 的父进程超时；这里是给 launchd/cron 无父进程场景的自守）
@@ -1094,6 +1101,59 @@ def fetch_external_demand(conn):
 
 
 # ─────────────────────────────────────────────
+# 16-19. 红利低波(H30269)估值：中证行情/官方估值锚/蛋卷 PB/中债日频
+# ─────────────────────────────────────────────
+def fetch_idx_price_daily(conn):
+    log("采集: 红利低波 价格/全收益日频行情 ...")
+    prev = pd.DataFrame()
+    try:
+        prev = pd.read_sql("SELECT date, px_close, tr_close, peg_pe FROM idx_price_daily", conn)
+    except Exception:
+        pass
+    if prev.empty:
+        log("  全量: 无旧表，2006 年起按年分页全抓（WAF 限速，约数分钟）")
+    result = index_dividend.fetch_price_daily(prev)
+    save_to_db(result, "idx_price_daily", conn)
+    return result
+
+
+def fetch_idx_valuation_official(conn):
+    log("采集: 红利低波 官方估值锚 (indicator.xls, 20日滚动 upsert) ...")
+    prev = pd.DataFrame()
+    try:
+        prev = pd.read_sql("SELECT date, pe1, pe2, dp1, dp2 FROM idx_valuation_official", conn)
+    except Exception:
+        pass
+    result = index_dividend.fetch_official_valuation(prev)
+    save_to_db(result, "idx_valuation_official", conn)
+    return result
+
+
+def fetch_idx_valuation_dj(conn):
+    log("采集: 红利低波 蛋卷 PB/PE ...")
+    prev = pd.DataFrame()
+    try:
+        prev = pd.read_sql("SELECT date, pb, pe_dj FROM idx_valuation_dj", conn)
+    except Exception:
+        pass
+    result = index_dividend.fetch_dj_valuation(prev)
+    save_to_db(result, "idx_valuation_dj", conn)
+    return result
+
+
+def fetch_bond_yield_daily(conn):
+    log("采集: 10 年期国债收益率（日频）...")
+    prev = pd.DataFrame()
+    try:
+        prev = pd.read_sql("SELECT date, y_10y FROM bond_yield_daily", conn)
+    except Exception:
+        pass
+    result = index_dividend.fetch_cgb_daily(prev, to_num, pick_curve_table)
+    save_to_db(result, "bond_yield_daily", conn)
+    return result
+
+
+# ─────────────────────────────────────────────
 # 退出码汇总
 # ─────────────────────────────────────────────
 def compute_exit_code(manifest: dict) -> int:
@@ -1153,6 +1213,10 @@ def main():
         fetch_demographics,
         fetch_fiscal,
         fetch_external_demand,
+        fetch_idx_price_daily,
+        fetch_idx_valuation_official,
+        fetch_idx_valuation_dj,
+        fetch_bond_yield_daily,
     ]
 
     # 抓取计划：release 型表只在发布窗口内抓，market/未知表恒抓（见 release_calendar）

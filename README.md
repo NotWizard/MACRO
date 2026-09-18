@@ -33,7 +33,7 @@
 
 ## 功能特性
 
-- **八大分析视图 + CRCL 监控**：综合概览、美林时钟、信用周期、库存周期、债务周期、房地产市场、人口与城镇化、财政与外需，外加 CRCL（Circle）投资论点监控页
+- **九大分析视图 + CRCL 监控**：综合概览、美林时钟、信用周期、库存周期、债务周期、房地产市场、人口与城镇化、财政与外需、红利低波估值（H30269：TR/PR 股息率重建 + 任意窗口分位），外加 CRCL（Circle）投资论点监控页
 - **综合宏观信号**：聚合四大周期框架生成 `[-4, +4]` composite score 与解读
 - **交互式图表**：双轴折线、堆叠面积、柱+折线组合、四象限散点、阶段时间条、雷达图
 - **双主题换肤**：Obsidian Blue 暗色 × Paper 亮色，顶栏 ☾/☀ 一键切换（含全部图表联动换肤），跟随系统偏好并记忆选择
@@ -78,7 +78,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Frontend  (Vue 3 + Vite + TS + ECharts + Pinia, build)     │
-│  pages/ (10 视图) ─ router ─ stores (filters/refresh/theme)  │
+│  pages/ (11 视图) ─ router ─ stores (filters/refresh/theme)  │
 │  components/charts/ (EChart + option builders)  design/      │
 │  api/ (typed client ← OpenAPI)                               │
 └─────────────────────────────────────────────────────────────┘
@@ -86,7 +86,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │  Backend   (FastAPI + Pydantic, :8000)                      │
 │  api/v1/ (data·cycles·signals·real-estate·refresh·commentary│
-│           ·sources·ai·crcl·session)                          │
+│           ·sources·ai·crcl·session·index-dividend)           │
 │  schemas/ (契约真相源)   core/ (db·auth·refresh·commentary·  │
 │           ai_config/ai_client/keychain·crcl_collect·serial)  │
 │  tests/ (pytest 375 项)                                      │
@@ -99,11 +99,11 @@
 │  scripts/_pipeline.py + 01_fetch_data.py + 02_compute_derived│
 └─────────────────────────────────────────────────────────────┘
                       │
-              data/macro_data.db (SQLite, 16 原始 + 2 衍生 + commentary + signal_history)
+              data/macro_data.db (SQLite, 20 原始 + 3 衍生 + commentary + signal_history)
 ```
 
 - `backend/` — FastAPI：薄包装 `analysis/`，Pydantic schema + OpenAPI 契约 + golden test
-- `frontend/` — Vue 3 SPA：10 页视图、Pinia 全局联动、ECharts 图表组件
+- `frontend/` — Vue 3 SPA：11 页视图、Pinia 全局联动、ECharts 图表组件
 - **单进程托管**：`frontend/dist` 由 FastAPI 在 `:8000` 上挂载（`/assets` + 404 回落到 `index.html`），`run_app.sh` 不再起 `vite preview`；`:5173` 只在 `npm run dev` 热重载时存在
 - `analysis/`、`scripts/_pipeline.py`、`scripts/01_fetch_data.py`、`02_compute_derived.py` — **核心保值，原样复用**
 
@@ -125,7 +125,7 @@ MACRO/
 ├── backend/                     # FastAPI 后端
 │   ├── app/
 │   │   ├── main.py              # FastAPI 实例 + CORS + 路由挂载
-│   │   ├── api/v1/              # 端点：data·cycles·signals·real_estate·refresh·commentary·sources·ai·crcl·session
+│   │   ├── api/v1/              # 端点：data·cycles·signals·real_estate·refresh·commentary·sources·ai·crcl·session·index_dividend
 │   │   ├── schemas/             # Pydantic 契约（CycleFrame/SignalSummary/RefreshResult/Commentary/ProfileList…）
 │   │   ├── core/                # db(版本键缓存) · auth(本机令牌) · refresh(任务+SSE) · commentary · ai_* · keychain · crcl_*
 │   │   └── deps.py
@@ -161,7 +161,7 @@ MACRO/
 │   └── gen_openapi.py           # OpenAPI 契约导出（shared/openapi.json）
 │
 ├── data/                        # SQLite 数据库（gitignored）
-│   ├── macro_data.db            # 16 张原始表 + derived_monthly/derived_quarterly + commentary + signal_history
+│   ├── macro_data.db            # 20 张原始表 + derived_monthly/derived_quarterly/derived_index_daily + commentary + signal_history
 │   ├── backups/                 # 采集前自动备份（留 10 份）
 │   ├── vintages/                # 提交前审计快照（留 12 份，供 scripts/diff_vintage.py 比对）
 │   ├── logs/                    # 运行日志：fetch.log（采集，轮转）· api.log（uvicorn，超 5MB 转存 .1）
@@ -325,6 +325,7 @@ FastAPI（`:8000`，同时托管 Vue 构建产物），OpenAPI 文档 `http://lo
 | `GET/PUT /api/v1/ai/templates` | 提示词模板默认全文 + 覆盖（PUT 🔒）|
 | `GET /api/v1/session` | 本机能力令牌（F4；同源页面自取，跨站页面读不到响应体）|
 | `GET /api/v1/crcl/*` | CRCL 监控（overview / metrics / events / fundamentals / alerts / logs / refresh 🔒）|
+| `GET /api/v1/index-dividend/*` | 红利低波估值（series 日频序列 / summary 当前值+预设与自定义窗口分位 / health 质量门与各源新鲜度）|
 | `GET /api/v1/refresh/status` | 上次刷新 manifest |
 | `POST /api/v1/refresh` | 触发闸门管道（阻塞）|
 | `GET /api/v1/refresh/stream` | SSE 流式真进度 |
@@ -337,7 +338,7 @@ FastAPI（`:8000`，同时托管 Vue 构建产物），OpenAPI 文档 `http://lo
 
 ## 前端架构
 
-- **10 页视图**（`pages/`）：Overview / MerrillClock / CreditCycle / InventoryCycle / DebtCycle / RealEstate / Demographics / FiscalExternal（财政与外需）/ CrclMonitor（CRCL 监控）/ AISettings（AI 设置）
+- **11 页视图**（`pages/`）：Overview / MerrillClock / CreditCycle / InventoryCycle / DebtCycle / RealEstate / Demographics / FiscalExternal（财政与外需）/ IndexDividend（红利低波估值）/ CrclMonitor（CRCL 监控）/ AISettings（AI 设置）
 - **Pinia stores**：`filters`（全局日期联动——改一处全图重取）、`refresh`（SSE 进度消费）
 - **图表层**（`components/charts/options.ts`）：纯函数 builder——`buildDualAxisLine` / `buildStackedArea` / `buildBarLineCombo` / `buildMultiLine` / `buildScatterQuadrant` / `buildCreditM2Chart` / `buildCreditImpulseChart` / `buildSpreadChart` / `buildRadar`
 - **EChart.vue**：vue-echarts 封装，按需注册（Line/Bar/Scatter/Radar + 组件）

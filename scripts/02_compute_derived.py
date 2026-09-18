@@ -199,6 +199,26 @@ def compute_derived(conn):
     enforce_indexes(conn, "derived_monthly", ["date"])
     log(f"  ✅ derived_monthly: {len(monthly)} rows, {len(monthly.columns)} columns")
 
+    # ─── 红利低波(H30269)估值衍生（TR/PR 股息率重建 + 利差 + 质量门）───
+    # 独立模块：原始表缺失（老库未采集过）时跳过，不影响月度/季度衍生表；
+    # 阻断门（G1/G6/G7）失败会抛异常 → 整轮 staging 丢弃（与 derived 原子一致）。
+    try:
+        # analysis/ 在项目根而不在 scripts/：脚本方式运行时 sys.path[0] 是 scripts/，
+        # 必须显式补项目根，否则 launchd/cron 直跑时 import 失败
+        _root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        if _root not in sys.path:
+            sys.path.insert(0, _root)
+        from analysis.index_dividend import compute_index_dividend
+        idx_div = compute_index_dividend(conn)
+        if idx_div is not None:
+            idx_div.to_sql("derived_index_daily", conn, if_exists="replace", index=False)
+            enforce_indexes(conn, "derived_index_daily", ["date"])
+            log(f"  ✅ derived_index_daily: {len(idx_div)} rows")
+    except ValueError:
+        raise            # 阻断门失败 → 上抛（丢弃 staging）
+    except Exception as e:
+        log(f"  ⚠️ derived_index_daily 计算失败（不影响其他衍生表）: {e}")
+
     # ─── 构建季度衍生表 ───
     # 以 leverage 季频为锚, 保留其原生季末月日期(03/06/09/12-01), 与债务页其他图
     # (leverage 原始表)日期对齐; GDP 年频经 merge_asof(backward) 填充, 无需归一季初。
