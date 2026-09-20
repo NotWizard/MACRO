@@ -33,8 +33,6 @@ data/refresh_schedule.log
 # 根忽略此前只列了具体的 data/* 条目、未覆盖该目录，run_app.sh 只能在创建目录时
 # 顺手写一个自忽略的 data/logs/.gitignore 兜底；补在这里让根文件成为唯一权威。
 data/logs/
-# 中证接口逐年响应缓存（index_dividend bootstrap 断点续抓，历史年永久有效）
-data/cache/
 
 # IDE
 .idea/

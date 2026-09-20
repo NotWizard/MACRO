@@ -1,7 +1,7 @@
 """API v1 router aggregation."""
 from fastapi import APIRouter
 
-from backend.app.api.v1 import data, cycles, signals, refresh, real_estate, commentary, sources, crcl, ai, index_dividend
+from backend.app.api.v1 import data, cycles, signals, refresh, real_estate, commentary, sources, crcl, ai
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(data.router)
@@ -13,4 +13,3 @@ router.include_router(commentary.router)
 router.include_router(sources.router)
 router.include_router(crcl.router)
 router.include_router(ai.router)
-router.include_router(index_dividend.router)

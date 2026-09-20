@@ -119,23 +119,6 @@ TABLE_SPECS = {
                              ranges=dict(exports_yoy=(-40, 170),
                                          imports_yoy=(-40, 70),
                                          trade_total_yoy=(-30, 80)), max_date_lag=220),
-    # 红利低波(H30269)估值（文档《指数股息率与PE数据获取及加工规范》口径）：
-    # 日频交易数据，max_date_lag=14 覆盖国庆/春节长假；ranges 按 2006-2026 实测
-    # 值域放宽（PX 1009→10890、TR 同量级 2 倍、peg 实测 5-12、官方 DP 3.5-6.5）。
-    "idx_price_daily":  dict(min_rows=1500, required=["px_close", "tr_close"],
-                             ranges=dict(px_close=(500, 60000), tr_close=(500, 200000),
-                                         peg_pe=(2, 80)), max_date_lag=14),
-    # 官方估值锚每日 upsert 攒历史：首抓仅 20 行，min_rows 对齐起步规模
-    "idx_valuation_official": dict(min_rows=15, required=["pe2", "dp2"],
-                                   ranges=dict(pe1=(3, 60), pe2=(3, 60),
-                                               dp1=(0.5, 15), dp2=(0.5, 15)),
-                                   max_date_lag=14),
-    # 蛋卷 PB/PE：周频采样 2016-09 起 ~515 点；口径未文档化（推定），放假宽 ranges
-    "idx_valuation_dj": dict(min_rows=300, required=["pb"],
-                             ranges=dict(pb=(0.3, 4), pe_dj=(3, 60)), max_date_lag=21),
-    # 中债 10Y 日频（利差分母）：2006 起 ~4900 交易日
-    "bond_yield_daily": dict(min_rows=3000, required=["y_10y"],
-                             ranges=dict(y_10y=(0.5, 9)), max_date_lag=21),
 }
 
 

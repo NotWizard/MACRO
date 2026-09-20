@@ -2,37 +2,17 @@
 
 ## [Unreleased]
 
-### 新增：红利低波(H30269)估值监控页 —— TR/PR 股息率重建 + 任意窗口分位
+### 移除：未发布的指数估值实验功能
 
-概述：接入中证红利低波动指数的估值监控。基于《指数股息率与PE数据获取及加工规范 v1.0》实现 TR/PR 股息率精确重建（全收益/价格比日增量还原分红，252 交易日滚动），与官方 DP2 口径自动配对并常数校准；PE 用 index-perf 的 `peg` 字段（推定口径，G5 门监控）+ 官方锚校准；PB 用蛋卷周频序列（官方只在月度 PDF 发布 PB，唯一免费自建源）；股债利差 = 股息率 − 中债 10Y 日频。分位改为查询时计算，支持成立以来/1/3/5/10 年预设窗口 + 任意自定义起止，每个分位随窗口定义与观测数返回（G11 按时间跨度覆盖率判定充足性，周频 PB 的 10 年窗有效）。
+概述：移除试验性指数估值页面及其整条数据链路，避免不成熟的口径和数据源干扰现有宏观分析。
 变更：
-  1. 数据层：新增 `scripts/index_dividend.py`（中证 index-perf / indicator.xls、蛋卷 index_eva、中债日频四个客户端，WAF 纪律：2s 间隔 + 每 10 次喘息 15s + 403 退避 + 逐年磁盘缓存断点续抓）；新增 4 张原始表 `idx_price_daily`(5051 行, 2006 起)/`idx_valuation_official`(官方锚 20 日滚动 upsert)/`idx_valuation_dj`(515 行, 2016 起)/`bond_yield_daily`(5141 行)。
-  2. 加工层：新增 `analysis/index_dividend.py`（重建 + 口径判定 + 校准 + 利差 + G1/G2/G5/G6/G7 质量门），`02_compute_derived.py` 生成 `derived_index_daily`(4798 行) + `idx_gate_status`；12 月调样窗口 G1 降级为告警。
-  3. 后端：新增 `/api/v1/index-dividend/{series,summary,health}`；当前值取官方锚（重建序列在除息密集期有 ±2-3% 单日噪音），分位在校准后的重建历史上计算。
-  4. 前端：新增独立页面 `/index-dividend`（侧边栏「追踪与配置」组）——分位窗口选择器（含自定义日期）+ 4 指标瓦片（方向硬编码：股息率/利差高=偏便宜、PE/PB 高=偏贵，来源如实标注）+ 5 张走势图（PE/PB 图按首个非空值裁剪起始时间，空段不占坐标轴）+ 数据健康区（质量门 + 各源新鲜度）。
-  5. 图表观感：日频密度（~4800 类目）下主题对长跨度轴强制 `axisLabel.interval:0`，x 轴竖向 splitLine 随之每类目一条（SSR 实测 9598 条竖线）糊成灰色面纱；本页 5 图统一关闭 x 轴 splitLine（页面局部覆盖，不动全站主题——月频页面的淡竖线是有效对齐参照）。
-  6. 文档：`docs/data-supplement-runbook.md` 新增 §10（表/源/WAF 踩坑/分位口径/校验），`docs/data-sources-guide.md` 新增 §十三（中证/蛋卷端点实测结论）。
-验证：
-  1. 规范附录 B 测试向量逐项对上（2026-09-17）：重建/DP2 ratio 1.008(期望 1.008±0.02)、corr 0.852(±0.05)、k=0.9921(±0.005)、利差 3.16pp、10 年 PE 分位 72.7%；反模式 1 反向测试精确命中（派息率法假分位 27.4% vs 真值 66.2%）。
-  2. TTM 窗口选型实测否决 365 自然日假设（corr 0.649 不过 G1），采用 252 交易日（corr 0.852）。
-  3. WAF 阈值实测精确复现：连续第 41 个请求触发 403，与规范「~40 次」一致；缓存断点续抓验证通过。
-  4. pytest 387 项全绿（新增 12 项：合成数据 TR/PR 重建精确性、口径判定、校准排序不变性、G11 语义、反模式伪恒等式、端点形状与缺表降级）；管道自查 31 项通过；全量采集端到端跑通。
+  1. 删除采集、加工、API、前端页面与专项测试模块。
+  2. 清理刷新计划、数据库闸门、路由、菜单、类型、OpenAPI 和相关说明文档。
+  3. 从本地数据库及运行清单移除实验表和缓存数据。
 
-### New: CSI Dividend Low Volatility (H30269) valuation monitor — TR/PR dividend-yield reconstruction + arbitrary-window percentiles
+### Removed: unreleased index-valuation experiment
 
-Summary: Adds valuation monitoring for the CSI Dividend Low Volatility index. Implements the TR/PR dividend reconstruction (daily increments of the total-return/price ratio restore per-dividend cash exactly, 252-trading-day TTM), auto-paired to the official DP2 caliber with constant-factor calibration; PE from the (presumed) `peg` field of index-perf calibrated against the official anchor; PB from Danjuan weekly history (the only free source — CSI publishes PB only in monthly PDFs); stock-bond spread = DY − daily CGB 10Y. Percentiles are computed at query time with preset windows (inception/1/3/5/10y) plus arbitrary custom ranges, always returned with window definition and observation count (G11 sufficiency judged by time-span coverage, so weekly PB qualifies for the 10y window).
-Changes:
-  1. Data layer: new `scripts/index_dividend.py` (CSI index-perf / indicator.xls, Danjuan index_eva, Chinabond daily; WAF discipline: 2s pacing + 15s breather per 10 requests + 403 backoff + per-year disk cache for resumable bootstrap); 4 new raw tables.
-  2. Compute layer: new `analysis/index_dividend.py` (reconstruction, caliber detection, calibration, spread, gates G1/G2/G5/G6/G7); `02_compute_derived.py` emits `derived_index_daily` + `idx_gate_status`; G1 degrades to warning during the December reconstitution window.
-  3. Backend: new `/api/v1/index-dividend/{series,summary,health}`; current levels anchored to the official file, percentiles computed on the calibrated reconstructed history.
-  4. Frontend: new standalone page `/index-dividend` — window selector (incl. custom dates), 4 metric tiles with hardcoded percentile direction and source labels, 5 charts (PE/PB charts trimmed to each series' first non-null point), data-health strip (gates + per-source freshness).
-  5. Chart look: at daily density (~4800 categories) the theme's forced `axisLabel.interval:0` on long-span axes makes x-axis splitLines render one-per-category (9598 verticals in SSR), visually a gray veil; this page disables x splitLines locally (global theme untouched — the faint verticals aid monthly charts).
-  6. Docs: runbook §10 + data-sources guide §XIII.
-Verification:
-  1. Spec Appendix B vectors reproduced (2026-09-17): recon/DP2 ratio 1.008, corr 0.852, k=0.9921, spread 3.16pp, 10y PE percentile 72.7%; anti-pattern-1 negative test lands exactly (fake percentile 27.4% vs true 66.2%).
-  2. The 365-calendar-day TTM hypothesis was tested and rejected (corr 0.649 fails G1); 252 trading days adopted (corr 0.852).
-  3. WAF threshold reproduced exactly (403 at the 41st consecutive request); cache-resumed bootstrap verified.
-  4. 387 pytest green (12 new); 31 pipeline self-checks pass; full ingestion pipeline runs end-to-end.
+Summary: Removes the experimental index-valuation page and its complete data path so unfinished methodology and sources do not interfere with the macro dashboard.
 
 ### 修复：Tooltip ⓘ 图标全站偏下（Unicode 字形 → SVG 图标 + 光学对齐）
 
@@ -1062,7 +1042,7 @@ Changes:
 
 1. **[修复] `docs/data-sources-guide.md` §五 货币供应量**：`macro_china_supply_of_money()` 在 AKShare 中不存在，替换为正确的 `macro_china_m2_yearly()`，补充 `macro_china_money_supply()` 备选方案
 2. **[修复] §三 新浪财经新闻 API**：原 URL `CN_MarketData.getKLineData` 实际返回 K 线数据而非新闻，替换为正确的 `feed.mix.sina.com.cn/api/roll/get` 新闻接口，附完整参数和代码示例
-3. **[修复] §六 Tushare 代码示例**：`ts_code='H30269.CSI'` 格式错误（index_dailybasic 仅支持 SH/SZ 后缀），改为 `ts_code='000300.SH'`
+3. **[修复] §六 Tushare 代码示例**：修正不受支持的 CSI 后缀示例（index_dailybasic 仅支持 SH/SZ 后缀），改为 `ts_code='000300.SH'`
 4. **[修复] §三 东方财富新闻 API**：重写为正确的 JSONP 嵌套参数结构和解析代码
 5. **[文档] §六 Tushare 输出字段**：补齐全部 12 个字段（新增 total_mv/float_mv/total_share/float_share/free_share/turnover_rate）
 6. **[文档] 官方文档链接**：新增 5 个链接——AKShare 数据字典 + GitHub、Tushare index_dailybasic 接口文档 + 积分权限、yfinance API 参考

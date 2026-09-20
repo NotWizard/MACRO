@@ -404,7 +404,7 @@ image       | 缩略图 URL
 **官方文档**：无官方文档（复用历史 K 线 API，逆向工程整理）
 
 **ETF 代码格式**：
-- 上海 ETF：`1.563020`
+- 上海 ETF：`1.510300`
 - 深圳 ETF：`0.159915`
 
 **使用示例**：
@@ -414,7 +414,7 @@ import pandas as pd
 
 url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
 params = {
-    'secid': '1.563020',  # 红利低波 ETF
+    'secid': '1.510300',  # 沪深 300 ETF
     'klt': '101',
     'fqt': '1',
     'beg': '20230101',
@@ -445,7 +445,7 @@ if 'data' in data and data['data'] and 'klines' in data['data']:
 ```python
 import yfinance as yf
 
-ticker = yf.Ticker("563020.SS")  # 红利低波 ETF
+ticker = yf.Ticker("510300.SS")  # 沪深 300 ETF
 df = ticker.history(period="max")
 
 print(df.head())
@@ -840,46 +840,3 @@ A: 部分接口需要积分，详见：https://tushare.pro/document/1?doc_id=108
 **AKShare**：`ak.stock_us_daily(symbol='CRCL')`（新浪端点，偶发不可达）。
 **yfinance 备用**：`yf.Ticker('CRCL').history(period='max')`；估值快照 `yf.Ticker('CRCL').info`（marketCap / trailingPE / forwardPE / priceToSalesTrailing12Months / fiftyTwoWeek*）。
 **口径提示**：Yahoo trailingPE 含一次性项目，与 WSJ 等数据商差异大；看方向（前瞻−TTM 价差）不看绝对值。
-
-## 十三、红利低波估值数据源（中证指数 / 蛋卷 / 中债日频）— 2026-09-18 实测
-
-> 完整方法论与陷阱清单见《指数股息率与PE数据获取及加工规范 v1.0》（SCHD_analysis/）；
-> 本节目录只记落地后的实测结论。采集实现 `scripts/index_dividend.py`。
-
-### 中证指数 `index-perf`（价格/全收益日频行情）
-
-- 端点：`GET https://www.csindex.com.cn/csindex-home/perf/index-perf?indexCode={code}&startDate={YYYYMMDD}&endDate={YYYYMMDD}`
-- 必带 `Referer: https://www.csindex.com.cn/zh-CN/indices/index-detail/{code}`，否则 403。
-- **日期参数只接受 `YYYYMMDD`**；`YYYY-MM-DD` 跨年区间静默返回错误结果（只到上一年末）。
-- 单次跨度约 1 年 → 按年分页。H30269 / H20269 均有 2006-01 起的基日回填历史（5051 行实测）。
-- **`peg` 字段实为 PE**（官方无文档，推定）：与官方 PE2 重叠区比值 1.013、与蛋卷 PE 相关 0.989。
-  覆盖 2013-12 起（3125 个非空观测）。平台内以 G5 门（peg/PE2 比值漂移 ±5%）持续监控。
-- **WAF**：连续 ~40 请求封禁 10 分钟以上（实测第 41 个请求精确触发），返回 403 + title=405 的 HTML。
-  对策：2s 间隔 + 每 10 次喘息 15s + 逐年磁盘缓存（`data/cache/csindex/`）。
-
-### 中证 `indicator.xls`（官方估值真值锚）
-
-- 端点：`GET https://oss-ch.csindex.com.cn/static/html/csindex/public/uploads/file/autofile/indicator/{code}indicator.xls`
-- **只含滚动 20 个交易日**（无历史、无 PB）→ 必须每日抓、upsert 攒历史。
-- 文件是 OLE2 老式 Excel：`pd.read_excel`，不能 `read_csv`。
-- 双口径：PE1/DP1（总股本）与 PE2/DP2（计算用股本）同日不同值（实测差 4%/13%）。
-  **TR/PR 重建序列复现的是 DP2 口径**（ratio 1.008 / corr 0.852，n=20）。
-- 派息率恒等式探针：`PE×DP` 日频应稳定（PE2×DP2≈37.7%，20 日 std 0.09pp）。
-
-### 蛋卷指数估值（PB 唯一免费自建源）
-
-- `GET https://danjuanfunds.com/djapi/index_eva/pb_history/CSIH30269?day=all`（pe_history 同理），
-  `day` 仅支持 `3y/5y/all`；**周频采样** 2016-09 起（515 点实测），非日频。
-- `GET .../detail/CSIH30269` 当日 pe/pb/yeild；字段 typo `yeild`（非 yield），
-  `bond_yeild` 值恒 0.05 不可用。
-- PB/PE 构造口径未文档化（推定），蛋卷 PE 与官方 PE2 存在稳定偏差（8.43 vs 7.79）——
-  PB 分位只在蛋卷自身序列内计算，不与官方 PE 混用。
-- 中证官方 PB 仅在月度「指数单张 PDF」发布，未接入（PDF 解析脆弱，留作人工抽查口径用）。
-
-### 中债 10Y 国债日频（`bond_yield_daily`）
-
-- 复用 `fetch_bond_yield` 同款 historyQuery 端点，保留日频（与月频 `bond_yield` 表并存）。
-- 覆盖 2006-03 起（5141 行实测）。2026-09-17 实测 1.6862，与规范文档交叉验证一致。
-- 规范推荐 akshare `bond_zh_us_rate`，实测其限流抛 `JSONDecodeError`，故采用中债直连为主源。
-- 已知源缺口：H30269 价格指数缺 2012-12-31 单日（全收益 H20269 同日有值）——上游如此，
-  重建管线按交易日对齐自动跳过，无影响。

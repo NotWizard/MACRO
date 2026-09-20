@@ -358,4 +358,3 @@ def _run_refresh_locked(progress_cb, stop_event, full) -> dict:
                 proc.wait(timeout=5)
             except Exception:
                 pass
-
