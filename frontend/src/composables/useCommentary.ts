@@ -6,7 +6,11 @@ import { useRefreshStore } from '@/stores/refresh'
 import { api } from '@/api/client'
 import type { Commentary } from '@/api/types'
 
-const EMPTY: Commentary = { status: 'empty', msg: null, hint: null, stale: false, regenerating: false, overall: '', sections: {}, provenance: null }
+const EMPTY: Commentary = {
+  status: 'empty', msg: null, hint: null, stale: false, regenerating: false,
+  overall: '', sections: {}, report: '', report_status: 'missing',
+  report_msg: null, provenance: null,
+}
 
 const data = ref<Commentary>(EMPTY)   // 模块级：任意细分页共享同一响应
 let inflight: Promise<void> | null = null

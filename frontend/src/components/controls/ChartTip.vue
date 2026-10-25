@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, nextTick, onScopeDispose, useId } from 'vue'
 
-defineProps<{ text: string }>()
+withDefaults(defineProps<{ text: string; label?: string }>(), {
+  label: '查看图表说明',
+})
 
 const visible = ref(false)
 const pop = ref<HTMLElement | null>(null)
@@ -52,11 +54,10 @@ onScopeDispose(clearHide)
 </script>
 
 <template>
-  <span
+  <button
+    type="button"
     class="tip-trigger ml-1 text-text-3 cursor-help select-none rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
-    tabindex="0"
-    role="button"
-    aria-label="查看图表说明"
+    :aria-label="label"
     :aria-expanded="visible"
     :aria-describedby="visible ? popId : undefined"
     @mouseenter="show"
@@ -69,7 +70,7 @@ onScopeDispose(clearHide)
       <div v-if="visible && text" :id="popId" ref="pop" role="tooltip" class="chart-tip-pop" :style="style"
            @mouseenter="clearHide" @mouseleave="hide">{{ text }}</div>
     </Teleport>
-  </span>
+  </button>
 </template>
 
 <style scoped>
@@ -78,6 +79,10 @@ onScopeDispose(clearHide)
    vertical-align 负补偿把图标视觉中心对齐到汉字视觉中心（基线上方 ~0.4em）。 */
 .tip-trigger {
   display: inline-block;
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
   line-height: 0;               /* 触发盒高度 = 图标高度，不随父行高膨胀 */
   vertical-align: -0.14em;
 }

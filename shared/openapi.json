@@ -329,7 +329,7 @@
           "signals"
         ],
         "summary": "Signals",
-        "description": "Composite [-4,+4] signal + per-framework latest phase.",
+        "description": "Versioned 0–100 macro score plus descriptive cycle phases.",
         "operationId": "signals_api_v1_signals_get",
         "responses": {
           "200": {
@@ -1330,7 +1330,7 @@
           "ai"
         ],
         "summary": "Get Templates",
-        "description": "默认 8 模板全文 + 当前覆盖（规范化）+ template_hash。",
+        "description": "默认 9 模板全文 + 当前覆盖（规范化）+ template_hash。",
         "operationId": "get_templates_api_v1_ai_templates_get",
         "responses": {
           "200": {
@@ -1505,6 +1505,27 @@
             "title": "Sections",
             "default": {}
           },
+          "report": {
+            "type": "string",
+            "title": "Report",
+            "default": ""
+          },
+          "report_status": {
+            "type": "string",
+            "title": "Report Status",
+            "default": "missing"
+          },
+          "report_msg": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Msg"
+          },
           "provenance": {
             "anyOf": [
               {
@@ -1613,6 +1634,261 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "MacroScore": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "pressure": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pressure"
+          },
+          "pressure_components": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Pressure Components",
+            "default": {}
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "freshness": {
+            "type": "number",
+            "title": "Freshness"
+          },
+          "agreement": {
+            "type": "number",
+            "title": "Agreement"
+          },
+          "coverage": {
+            "type": "number",
+            "title": "Coverage"
+          },
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "components": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/MacroScoreComponent"
+            },
+            "type": "object",
+            "title": "Components"
+          },
+          "positives": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Positives",
+            "default": []
+          },
+          "negatives": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Negatives",
+            "default": []
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "default": []
+          },
+          "weights": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Weights"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "label",
+          "confidence",
+          "freshness",
+          "agreement",
+          "coverage",
+          "components",
+          "weights",
+          "method"
+        ],
+        "title": "MacroScore"
+      },
+      "MacroScoreComponent": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "weight": {
+            "type": "number",
+            "title": "Weight"
+          },
+          "contribution": {
+            "type": "number",
+            "title": "Contribution"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/MacroScorePart"
+            },
+            "type": "array",
+            "title": "Parts",
+            "default": []
+          },
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "weight",
+          "contribution",
+          "available"
+        ],
+        "title": "MacroScoreComponent"
+      },
+      "MacroScorePart": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "weight": {
+            "type": "number",
+            "title": "Weight"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "label",
+          "weight",
+          "unit"
+        ],
+        "title": "MacroScorePart"
       },
       "PhaseFlip": {
         "properties": {
@@ -2094,9 +2370,60 @@
             ],
             "title": "Data As Of"
           },
-          "composite": {
-            "type": "integer",
-            "title": "Composite"
+          "macro_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Macro Score"
+          },
+          "macro_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Macro Label"
+          },
+          "macro_pressure": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Macro Pressure"
+          },
+          "macro_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Macro Confidence"
+          },
+          "score_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score Version"
           },
           "merrill": {
             "anyOf": [
@@ -2153,8 +2480,7 @@
         },
         "type": "object",
         "required": [
-          "ts",
-          "composite"
+          "ts"
         ],
         "title": "SignalHistoryRow"
       },
@@ -2180,18 +2506,20 @@
             "type": "object",
             "title": "Debt"
           },
+          "macro_score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MacroScore"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "cross_lags": {
             "additionalProperties": true,
             "type": "object",
             "title": "Cross Lags"
-          },
-          "composite_score": {
-            "type": "integer",
-            "title": "Composite Score"
-          },
-          "interpretation": {
-            "type": "string",
-            "title": "Interpretation"
           },
           "as_of": {
             "anyOf": [
@@ -2227,17 +2555,6 @@
             "type": "array",
             "title": "Stale",
             "default": []
-          },
-          "composite_raw": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Composite Raw"
           }
         },
         "type": "object",
@@ -2246,9 +2563,7 @@
           "credit",
           "inventory",
           "debt",
-          "cross_lags",
-          "composite_score",
-          "interpretation"
+          "cross_lags"
         ],
         "title": "SignalSummary"
       },

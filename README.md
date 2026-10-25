@@ -34,7 +34,8 @@
 ## 功能特性
 
 - **八大分析视图 + CRCL 监控**：综合概览、美林时钟、信用周期、库存周期、债务周期、房地产市场、人口与城镇化、财政与外需，外加 CRCL（Circle）投资论点监控页
-- **综合宏观信号**：聚合四大周期框架生成 `[-4, +4]` composite score 与解读
+- **版本化宏观扩张度**：以 0–100 标尺融合增长、信用、外需、财政和房地产，并同时给出压力、置信度与逐项贡献；旧 `[-4,+4]` 四相位相加分已移除
+- **五维口径可审计**：首页每个一级维度均有键盘可达的说明浮窗，展开总权重、子项权重、经济含义、中性分与贡献公式
 - **交互式图表**：双轴折线、堆叠面积、柱+折线组合、四象限散点、阶段时间条、雷达图
 - **双主题换肤**：Obsidian Blue 暗色 × Paper 亮色，顶栏 ☾/☀ 一键切换（含全部图表联动换肤），跟随系统偏好并记忆选择
 - **日期范围控制**：全局工具栏 5Y / 10Y / 20Y / 全部 快捷按钮 + 图表缩放条（拖拽缩放，滚轮已禁用防误触）
@@ -47,7 +48,8 @@
 - **图例中文化**：所有图表图例/轴名统一中文（NBS/央行/NIFD 官方术语；CPI/PPI/M2/PMI/LPR/GDP 等特有名词保留英文缩语），见 `options.ts` `COL_ZH`
 - **居民真实杠杆空间**：债务周期页「杠杆率 vs 债务收入比」图——杠杆率看似 ~60%，债务收入比已 ~120-140%，更真实反映居民加杠杆空间
 - **通胀环比图**：美林页「CPI vs PPI 环比」+「PPI 同比」图，与同比图呼应
-- **AI 宏观评论**：OpenAI-compatible 模型对分板块数据快照生成结构化评论（Overview 总评 + 6 细分页板块切片；配套 AI 设置页：profiles 多配置 + 密钥入 macOS 钥匙串 + 提示词模板编辑器 + 生成历史；未配置时优雅降级并给出引导）
+- **实体需求补全**：美林页新增社零、固定资产投资和城镇调查失业率；库存页新增 PMI 新订单/生产/库存分项；地产页新增开发投资、销售、新开工与竣工累计同比
+- **AI 总评 + 深度报告**：Overview 保留五段式短评，可进入保留侧栏的全页报告阅读视图；同一批数据把 12 个固定章节拆成 3 段依次生成，再校验合并为 1500–2500 字完整报告。报告 Skill 可在 AI 设置中独立编辑，生成历史同时标记全文是否可用
 - **本地 SQLite**：采集一次后离线运行，无需重复联网
 
 ---
@@ -61,15 +63,17 @@
 | **库存周期** | 供需与生产 | 主动补库 / 被动补库 / 主动去库 / 被动去库 | PMI vs 50；工业增加值 vs 6 月均线 |
 | **债务周期** | 各部门杠杆率变化 | 加杠杆 / 去杠杆 / 稳定 / 美丽去杠杆 / 丑陋去杠杆等 | 家庭/企业/政府杠杆率 4 季度变化 + GDP 增速 |
 
-**综合信号打分**：每个框架的最新阶段映射为 `-1 / 0 / +1`，四项求和后得到 `[-4, +4]` 的综合得分：
+**宏观扩张度（macro-expansion-v1）**：不再把四个周期各记 `-1/0/+1` 后相加。新版主分数为 `0–100`（50=中性），由五个不重叠维度加权：
 
-| 得分 | 解读 |
-|---|---|
-| `+3 ~ +4` | 强烈看多 — 多数周期处于扩张 |
-| `+1 ~ +2` | 温和看多 — 增长信号占优 |
-| `0` | 中性 — 信号相互冲突 |
-| `-1 ~ -2` | 温和看空 — 逆风积聚 |
-| `-3 ~ -4` | 强烈看空 — 多数周期处于收缩 |
+| 维度 | 权重 | 核心输入 |
+|---|---:|---|
+| 实体增长 | 30% | GDP 相对趋势、官方 PMI、工业增加值相对 6 月趋势 |
+| 信用条件 | 25% | M2 信贷脉冲、M2−M1 剪刀差、12 个月社融/新增贷款增量同比 |
+| 外需 | 15% | 出口近 3 月均值、美国 ISM |
+| 财政姿态 | 10% | 财政支出同比−收入同比 |
+| 房地产 | 20% | 新房/二手房环比 12 月均值、上涨城市占比 |
+
+债务杠杆、通胀失衡和房价压力另外合成为“宏观压力”指数，不再把加杠杆直接视作看多。每个结果同时带数据覆盖率、置信度、逐项贡献和 `score_version`；缺失输入会降低覆盖率/置信度，不会伪装成中性读数。详细口径见 `docs/macro-score-v1.md`。
 
 ---
 
@@ -89,7 +93,7 @@
 │           ·sources·ai·crcl·session)                          │
 │  schemas/ (契约真相源)   core/ (db·auth·refresh·commentary·  │
 │           ai_config/ai_client/keychain·crcl_collect·serial)  │
-│  tests/ (pytest 375 项)                                      │
+│  tests/ (pytest 385 项)                                      │
 └─────────────────────────────────────────────────────────────┘
                       │  同进程直接 import（无序列化边界）
 ┌─────────────────────────────────────────────────────────────┐
@@ -99,7 +103,7 @@
 │  scripts/_pipeline.py + 01_fetch_data.py + 02_compute_derived│
 └─────────────────────────────────────────────────────────────┘
                       │
-              data/macro_data.db (SQLite, 16 原始 + 2 衍生 + commentary + signal_history)
+              data/macro_data.db (SQLite, 19 原始 + 2 衍生 + commentary + signal_history)
 ```
 
 - `backend/` — FastAPI：薄包装 `analysis/`，Pydantic schema + OpenAPI 契约 + golden test
@@ -120,7 +124,7 @@ MACRO/
 │   ├── cycle_debt.py            # 债务周期
 │   ├── real_estate.py           # 房地产三维评估
 │   ├── cross_indicator.py       # 领先/滞后相关性
-│   └── signals.py               # 综合信号打分
+│   └── signals.py               # 周期相位 + 版本化宏观分数入口
 │
 ├── backend/                     # FastAPI 后端
 │   ├── app/
@@ -129,7 +133,7 @@ MACRO/
 │   │   ├── schemas/             # Pydantic 契约（CycleFrame/SignalSummary/RefreshResult/Commentary/ProfileList…）
 │   │   ├── core/                # db(版本键缓存) · auth(本机令牌) · refresh(任务+SSE) · commentary · ai_* · keychain · crcl_*
 │   │   └── deps.py
-│   ├── tests/                   # pytest 375 项（golden/契约/闸门/auth/评论/CRCL…）
+│   ├── tests/                   # pytest 385 项（golden/契约/闸门/auth/评论/CRCL…）
 │   └── pyproject.toml           # 后端最小依赖（fastapi/uvicorn/pydantic/httpx）+ pytest 配置
 │                                #   分析依赖不在此重述，以根 requirements.txt/.lock 为准
 │
@@ -152,7 +156,7 @@ MACRO/
 ├── scripts/                     # 采集与衍生计算（后端复用）
 │   ├── _pipeline.py             # 暂存快照 + 校验闸门（多粒度）+ 原子切换 + 备份 + 审计 + live 直写表并入
 │   ├── _pipeline_test.py        # 管道自查脚本（31 项 check；无 test_* 函数，pytest 不收集）
-│   ├── 01_fetch_data.py         # 宏观数据采集（16 fetcher：AKShare 为主 + 东方财富/中债/世行直连，走闸门管道）
+│   ├── 01_fetch_data.py         # 宏观数据采集（19 fetcher：AKShare/东财/NBS 发布页/中债/世行，走闸门管道）
 │   ├── 02_compute_derived.py    # 衍生指标计算
 │   ├── nifd_leverage.py         # NIFD 杠杆率补充数据单一真相源（01/03 共用）
 │   ├── pbc_shrzgm.py            # PBoC 社融 XLSX 备用源（01/04 共用）
@@ -161,7 +165,7 @@ MACRO/
 │   └── gen_openapi.py           # OpenAPI 契约导出（shared/openapi.json）
 │
 ├── data/                        # SQLite 数据库（gitignored）
-│   ├── macro_data.db            # 16 张原始表 + derived_monthly/derived_quarterly + commentary + signal_history
+│   ├── macro_data.db            # 19 张原始表 + derived_monthly/derived_quarterly + commentary + signal_history
 │   ├── backups/                 # 采集前自动备份（留 10 份）
 │   ├── vintages/                # 提交前审计快照（留 12 份，供 scripts/diff_vintage.py 比对）
 │   ├── logs/                    # 运行日志：fetch.log（采集，轮转）· api.log（uvicorn，超 5MB 转存 .1）
@@ -237,7 +241,7 @@ cd frontend && npm run dev
 
 ### 原始数据采集
 
-`scripts/01_fetch_data.py` 采集 16 类宏观指标（AKShare 为主，CPI/PPI 走东方财富数据中心、国债收益率直连中债信息网、人口数据走世界银行、财政/外需走 NBS 月度），清洗后经**闸门管道**落 SQLite：
+`scripts/01_fetch_data.py` 采集 19 类宏观指标（AKShare 与东方财富为主，PMI 分项/地产活动走 NBS 静态发布页，国债收益率直连中债信息网，人口数据走世界银行），清洗后经**闸门管道**落 SQLite：
 
 | # | 表 | 指标 | 频率 |
 |---|---|---|---|
@@ -245,20 +249,25 @@ cd frontend && npm run dev
 | 2 | `gdp` | GDP 绝对值 + 同比 | 季（累计季度解析：第1-2季度→Q2；年频用于美林/债务收入比）|
 | 3 | `cpi` | CPI 同比 + 环比 | 月 |
 | 4 | `ppi` | PPI 同比 | 月 |
-| 5 | `pmi` | 官方/财新/非制造业/服务业 | 月 |
+| 5 | `pmi` | 官方/RatingDog（原财新）/非制造业/服务业 | 月 |
+| 5a | `pmi_detail` | NBS 制造业 PMI 生产、订单、采购、价格与库存分项（13 个滚动月）| 月 |
 | 6 | `leverage` | 宏观杠杆率（CNBS 分部门）| 季 |
 | 7 | `social_finance` | 社融规模增量 + 分项（akshare 主源滞后时自动走 PBoC 调查统计司 XLSX 备用源）| 月 |
 | 8 | `lpr` | LPR 1Y/5Y | 月 |
 | 9 | `industrial` | 工业增加值同比 + 累计 | 月 |
+| 9a | `domestic_demand` | 社零、固定资产投资、全国/31 城调查失业率 | 月 |
 | 10 | `house_price` | 70 城房价指数（新建/二手 同比/环比/定基）| 月 |
+| 10a | `real_estate_activity` | 开发投资、销售、施工、新开工、竣工、待售与到位资金 | 月 |
 | 11 | `new_credit` | 新增人民币贷款 | 月 |
 | 12 | `household_income` | 居民可支配收入（NBS；2026-03 改版曾失效，2026-08-09 已修复为 akshare 1.18 新路径）| 年 |
 | 13 | `bond_yield` | 10 年国债收益率（中债信息网直连，日频→月末重采样；增量：仅重抓近 2 年）| 月 |
 | 14 | `demographics` | 总人口/城镇化率（NBS 官方优先、WB 长历史回退）+ 出生率/自然增长率（WB + 2025 统计公报补充）| 年 |
-| 15 | `fiscal` | 国家财政预算收入/支出累计值 + 累计增长（NBS 月度，2015- 起）| 月 |
-| 16 | `external_demand` | 货物进出口美元口径（NBS 月度）+ 美国 ISM 制造业 PMI | 月 |
+| 15 | `fiscal` | 国家财政预算收入/支出累计值 + 累计增长（NBS 主源，东财/财政部补齐）| 月 |
+| 16 | `external_demand` | 货物进出口美元口径（NBS 主源、东财兜底）+ 美国 ISM 制造业 PMI | 月 |
 
-> 注：`fiscal` / `external_demand` 不进衍生计算，经 `/table/{name}` 直通前端「财政与外需」页。
+> 注：`pmi_detail` / `domestic_demand` / `real_estate_activity` / `fiscal` / `external_demand`
+> 不进 v1 主分，经 `/table/{name}` 直通对应分析页；新增指标不会静默改变已冻结的
+> `macro-expansion-v1` 历史分数。
 
 > 注：`household_income` / `demographics` 两张表在 NBS 失效期间未生成，修复后（2026-08-09）下次采集自动重建。数据源现状与实测记录详见 [`docs/data-sources-guide.md`](docs/data-sources-guide.md)。
 
@@ -314,10 +323,10 @@ FastAPI（`:8000`，同时托管 Vue 构建产物），OpenAPI 文档 `http://lo
 | `GET /api/v1/derived/quarterly` | 季度主表切片 |
 | `GET /api/v1/table/{name}` | 任意原始表切片（house_price/leverage…）|
 | `GET /api/v1/cycles/{merrill\|credit\|inventory\|debt}` | 周期分类 + 最新阶段 |
-| `GET /api/v1/signals` | 综合信号 `[-4,+4]` + 各框架阶段 |
-| `GET /api/v1/signals/history` | 信号快照历史（倒序 + 相位翻转标注 flips）|
+| `GET /api/v1/signals` | 版本化宏观扩张度 `0–100` + 压力/置信度/贡献拆解 + 各框架阶段 |
+| `GET /api/v1/signals/history` | 新版宏观分数快照历史（倒序 + 相位翻转标注 flips；旧 `[-4,+4]` 历史已清除）|
 | `GET /api/v1/real-estate?cities=…&frames=false` | 房地产三维评估（frames=false 仅 assessment，~0.5KB；默认完整三维帧 ~199KB）|
-| `GET /api/v1/commentary` | AI 评论当前批（overall + 6 板块 + 出处；ok/generating/empty/error）|
+| `GET /api/v1/commentary` | AI 当前批（首页总评 + 6 板块 + 完整报告 + 出处；ok/generating/empty/error）|
 | `POST /api/v1/commentary/regenerate` | 异步触发重生成（🔒 令牌守门；立即返回 last-good + generating，前端轮询收敛）|
 | `GET /api/v1/commentary/history` | 评论批次历史索引（?ts=… 单批详情）|
 | `GET/POST/PUT/DELETE /api/v1/ai/profiles[…]` | AI 配置 profiles（写操作 🔒；密钥只进钥匙串）|
@@ -385,7 +394,7 @@ font-family: -apple-system, BlinkMacSystemFont, Inter, 'SF Pro Display', 'Segoe 
 
 ## 测试与质量
 
-- **后端全量**：`cd backend && ../.venv312/bin/python -m pytest -q`（375 项：golden + 契约 + 闸门 + auth + 评论 + CRCL + 跨指标方向…）
+- **后端全量**：`.venv312/bin/python -m pytest backend/tests -q`（385 项：golden + 契约 + 闸门 + auth + 评论 + CRCL + 跨指标方向…）
 - **管道自查**（`scripts/_pipeline_test.py`，31 项 check）：闸门全分支 + 暂存继承 + 崩溃安全 + 原子切换 + live 直写表并入。
   ⚠️ 它**不是** pytest 用例——文件里没有 `test_*` 函数，`pytest --collect-only scripts/` 收集为 0，必须手动跑：
   `.venv312/bin/python scripts/_pipeline_test.py`（全通过时打印 `✅ ALL CHECKS PASSED`，失败非零退出）

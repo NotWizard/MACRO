@@ -21,15 +21,16 @@ def check(name, cond, detail=""):
         _failures.append(name)
 
 
-# 16 表全集 = 01_fetch_data.py main() fetchers 列表
+# All tables in 01_fetch_data.py main()'s fetcher list.
 TABLES = [
-    "money_supply", "gdp", "cpi", "ppi", "pmi", "leverage", "social_finance",
-    "lpr", "industrial", "house_price", "household_income", "new_credit",
-    "bond_yield", "demographics", "fiscal", "external_demand",
+    "money_supply", "gdp", "cpi", "ppi", "pmi", "pmi_detail", "leverage",
+    "social_finance", "lpr", "industrial", "domestic_demand", "house_price",
+    "real_estate_activity", "household_income", "new_credit", "bond_yield",
+    "demographics", "fiscal", "external_demand",
 ]
 
 print("\n=== 1. calendar coverage ===")
-check("TABLE_CALENDAR covers all 16 tables", set(TABLE_CALENDAR) >= set(TABLES))
+check("TABLE_CALENDAR covers all tables", set(TABLE_CALENDAR) >= set(TABLES))
 
 print("\n=== 2. window logic ===")
 check("lpr on 20th True", should_fetch("lpr", datetime.date(2026, 8, 20)))

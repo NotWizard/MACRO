@@ -12,7 +12,7 @@ This is an in-sample, purely descriptive statistic: every historical point is
 correlated against its own future, so the result characterises the historical
 lead-lag shape for display only — it is NOT a real-time or tradable signal, and
 signals.py surfaces it merely as `cross_lags` display data (never in the
-composite score).
+macro score).
 """
 
 import sqlite3

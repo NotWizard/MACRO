@@ -271,9 +271,40 @@ def test_pmi_sources_are_collapsed_to_one_row_per_month(tmp_path, monkeypatch):
     conn.commit()
 
     assert result["date"].is_unique, "the outer merges produced a cartesian product"
-    assert len(result) == 250
+    # The stale Jin10 series ends at the fixture's 250th month; the explicit
+    # RatingDog/S&P supplement extends the current edge without interpolating
+    # months that the source never published.
+    assert len(result) >= 250
     assert result.loc[result["date"] == "2012-05-01", "pmi_caixin"].iloc[0] == 48.7
+    assert result.iloc[-1]["pmi_caixin"] == 52.1
     assert mod._MANIFEST["tables"]["pmi"]["status"] == "updated"
+    conn.close()
+
+
+def test_social_finance_primary_failure_keeps_published_history(tmp_path, monkeypatch):
+    """A legacy AKShare/SSL failure must not erase months already published by
+    PBoC.  The fetcher merges the previously-good staging table before the gate."""
+    mod = _load_fetch_module()
+    mod._MANIFEST.clear()
+    mod._MANIFEST.update({"ts": "t", "akshare": "test", "tables": {}})
+
+    dates = pd.date_range("2021-08-01", periods=60, freq="MS").strftime("%Y-%m-%d")
+    previous = pd.DataFrame({"date": dates, "total": [100.0] * len(dates),
+                             "rmb_loan": [70.0] * len(dates)})
+    conn = sqlite3.connect(tmp_path / "s.db")
+    previous.to_sql("social_finance", conn, if_exists="replace", index=False)
+
+    monkeypatch.setattr(
+        mod.ak, "macro_china_shrzgm",
+        lambda: (_ for _ in ()).throw(AttributeError("PROTOCOL_TLSv1_2")),
+        raising=False,
+    )
+    monkeypatch.setattr(mod, "pbc_shrzgm_supplement_df", lambda: pd.DataFrame())
+
+    result = mod.fetch_social_finance(conn)
+    assert len(result) == 60
+    assert result["date"].is_unique
+    assert mod._MANIFEST["tables"]["social_finance"]["status"] == "updated"
     conn.close()
 
 

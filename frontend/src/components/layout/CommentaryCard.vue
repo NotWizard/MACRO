@@ -8,20 +8,26 @@
 //   · 卸载时清理 timer 并 abort 在途请求。
 // 每次成功取数都 adopt() 进 useCommentary 模块态——细分页切片才不会吃到旧批次。
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useRefreshStore } from '@/stores/refresh'
 import { useCommentary } from '@/composables/useCommentary'
 import { api, ApiError } from '@/api/client'
 import type { Commentary } from '@/api/types'
 import MdLiteText from './MdLiteText.vue'
 
-const EMPTY: Commentary = { status: 'empty', msg: null, hint: null, stale: false, regenerating: false, overall: '', sections: {}, provenance: null }
+const EMPTY: Commentary = {
+  status: 'empty', msg: null, hint: null, stale: false, regenerating: false,
+  overall: '', sections: {}, report: '', report_status: 'missing',
+  report_msg: null, provenance: null,
+}
 const POLL_INTERVAL_MS = 2000
-const POLL_DEADLINE_MS = 660_000   // 推理模型（kimi-k3）结构化整轮实测 4-6 分钟，留 10% 余量
+const POLL_DEADLINE_MS = 1_200_000 // 摘要 + 完整报告是两次推理调用，留 20 分钟上限
 
 const data = ref<Commentary>({ ...EMPTY })
 const loading = ref(false)
 const pollNote = ref<string | null>(null)   // 轮询期间的软提示（不覆盖 status）
 const refresh = useRefreshStore()
+const router = useRouter()
 const { adopt } = useCommentary()
 
 let pollTimer: ReturnType<typeof setTimeout> | null = null
@@ -31,6 +37,7 @@ let reqId = 0
 
 /** 后端在重新生成时会带回上一版 → 展示旧评论 + 「重新生成中」标记。 */
 const regenerating = computed(() => data.value.status === 'generating' && data.value.regenerating && !!data.value.overall)
+const reportReady = computed(() => data.value.report_status === 'ready' && !!data.value.report)
 
 function stopPolling() {
   if (pollTimer) { clearTimeout(pollTimer); pollTimer = null }
@@ -67,7 +74,7 @@ function schedulePoll() {
     if (data.value.status !== 'generating') { pollNote.value = null; return }
     if (Date.now() >= pollUntil) {
       // 生成任务超出 deadline（LLM 进程可能已死）→ 报超时，停止轮询
-      data.value = { ...data.value, status: 'error', msg: '生成超时（10 分钟未完成），请重试' }
+        data.value = { ...data.value, status: 'error', msg: '生成超时（20 分钟未完成），请重试' }
       pollNote.value = null
       return
     }
@@ -119,13 +126,21 @@ watch(() => refresh.lastRefreshedAt, pull)
         <div class="text-xs text-text-3 uppercase tracking-wide">AI 宏观分析评论</div>
         <span v-if="data.status === 'ok' && data.stale" class="text-xs px-1.5 py-0.5 rounded bg-warn-soft text-warn">数据已更新</span>
       </div>
-      <button
-        class="text-xs px-2.5 py-1 rounded-lg border border-border hover:border-border-hi text-text-2 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
-        :disabled="loading || data.status === 'generating'"
-        @click="regenerate"
-      >
-        {{ data.status === 'generating' ? '生成中…' : '重新分析' }}
-      </button>
+      <div class="flex items-center gap-1.5">
+        <button
+          class="text-xs px-2.5 py-1 rounded-lg border border-border hover:border-border-hi text-text-2 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+          :disabled="!reportReady"
+          :title="reportReady ? '打开完整宏观报告' : (data.report_msg || '本批次暂无全文报告')"
+          @click="router.push('/overview/report')"
+        >查看全文</button>
+        <button
+          class="text-xs px-2.5 py-1 rounded-lg border border-border hover:border-border-hi text-text-2 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+          :disabled="loading || data.status === 'generating'"
+          @click="regenerate"
+        >
+          {{ data.status === 'generating' ? '生成中…' : '重新分析' }}
+        </button>
+      </div>
     </div>
 
     <!-- 状态容器：role=status 向屏幕阅读器通告 generating→ok/error 等状态切换 -->

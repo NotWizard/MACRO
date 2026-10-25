@@ -14,11 +14,12 @@ from release_calendar import TABLE_CALENDAR, should_fetch  # noqa: E402
 
 D = datetime.date
 
-# 14 表全集 = 01_fetch_data.py main() fetchers 列表
+# All tables in 01_fetch_data.py main()'s fetcher list.
 TABLES = [
-    "money_supply", "gdp", "cpi", "ppi", "pmi", "leverage", "social_finance",
-    "lpr", "industrial", "house_price", "household_income", "new_credit",
-    "bond_yield", "demographics",
+    "money_supply", "gdp", "cpi", "ppi", "pmi", "pmi_detail", "leverage",
+    "social_finance", "lpr", "industrial", "domestic_demand", "house_price",
+    "real_estate_activity", "household_income", "new_credit", "bond_yield",
+    "demographics", "fiscal", "external_demand",
 ]
 
 

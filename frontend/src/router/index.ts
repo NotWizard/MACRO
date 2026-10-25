@@ -19,6 +19,7 @@ export const router = createRouter({
   routes: [
     { path: '/', redirect: '/overview' },
     { path: '/overview', component: () => import('../pages/Overview.vue'), meta: { title: '综合概览', icon: '◉', dateFilter: true, refreshKind: 'macro' } },
+    { path: '/overview/report', component: () => import('../pages/MacroReport.vue'), meta: { title: '宏观分析报告', icon: '◉', dateFilter: false, refreshKind: 'macro' } },
     { path: '/merrill-clock', component: () => import('../pages/MerrillClock.vue'), meta: { title: '美林时钟', icon: '◐', dateFilter: true, refreshKind: 'macro' } },
     { path: '/credit-cycle', component: () => import('../pages/CreditCycle.vue'), meta: { title: '信用周期', icon: '◈', dateFilter: true, refreshKind: 'macro' } },
     { path: '/inventory-cycle', component: () => import('../pages/InventoryCycle.vue'), meta: { title: '库存周期', icon: '▣', dateFilter: true, refreshKind: 'macro' } },

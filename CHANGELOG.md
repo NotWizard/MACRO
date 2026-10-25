@@ -2,6 +2,106 @@
 
 ## [Unreleased]
 
+### 宏观数据：五维指标说明与全板块缺口补齐
+
+概述：为首页五个宏观扩张维度增加可访问的详细说明，并审计全部宏观板块，补齐消费、投资、就业、PMI 分项、地产活动和人口结构等缺口。
+变更：
+  1. `ChartTip` 改为原生按钮触发器并支持自定义无障碍名称；首页五个一级维度可查看总权重、子项权重、经济含义、50 中性口径、贡献公式和缺失数据处理。
+  2. 新增 `domestic_demand`：社零、固定资产投资、全国/31 城调查失业率；新增 `pmi_detail`：PMI 生产、订单、采购、价格和库存分项；新增 `real_estate_activity`：地产投资、销售、新开工、竣工、待售和到位资金。
+  3. 新增 `scripts/nbs_release.py`，在 NBS 数据 API 触发 WAF 时从 `www.stats.gov.cn` 官方发布页解析结构化表格；贸易和财政增加免费主备源，RatingDog PMI 与失业率使用显式官方补充值。
+  4. 美林、库存、房地产、人口页面接入新增图表；人口页补充 65 岁以上占比与抚养比。
+  5. 新增 `docs/macro-data-coverage.md` 覆盖审计，并同步 README、评分方法、数据源与补充运行手册。
+  6. 不改变 `macro-expansion-v1` 权重或历史评分；新指标先展示，后续如纳入主分必须升级版本。
+验证：
+  1. 全量生产采集 19/19 表通过闸门，贸易和财政推进到 2026-09；PMI 分项 13 个月、房地产活动 15 期、国内需求 210 行，SQLite 完整性检查为 `ok`。
+  2. 后端 `385 passed`；前端 Vitest `42 passed`、`vue-tsc` 与生产构建通过。
+  3. 无头 Chrome 验证五个维度说明可聚焦、展开和按 Escape 关闭；美林/库存/地产/人口/财政外需页共 22 个 canvas 正常渲染且无错误分支。
+
+### Macro data: dimension help and coverage backfill
+
+Summary: Added accessible explanations for the five macro dimensions and audited every macro view, backfilling consumption, investment, employment, PMI components, real-estate activity and demographic structure.
+Changes:
+  1. `ChartTip` is now a native button with a configurable accessible label; each overview dimension explains total weight, subweights, economic meaning, the neutral-50 mapping, contribution formula and missing-data behaviour.
+  2. Added `domestic_demand`, `pmi_detail` and `real_estate_activity` datasets covering retail sales, fixed-asset investment, unemployment, PMI components, property investment/sales/starts/completions and related activity.
+  3. Added `scripts/nbs_release.py` to parse structured NBS release tables when the data API is behind a WAF; trade and fiscal now have free fallback sources, while RatingDog PMI and unemployment retain explicit official supplements.
+  4. Wired the new series into the Merrill, inventory, real-estate and demographics views, including 65+ share and the age dependency ratio.
+  5. Added `docs/macro-data-coverage.md` and synchronized the README, score methodology, source guide and supplement runbook.
+  6. Kept `macro-expansion-v1` frozen: new indicators are displayed but do not silently change historical scores.
+Verification:
+  1. A full production run passed all 19 table gates; trade and fiscal reached September 2026, with 13 PMI-component months, 15 real-estate releases and 210 domestic-demand rows. SQLite integrity returned `ok`.
+  2. Backend tests passed `385`; frontend Vitest passed `42`, with `vue-tsc` and the production build also passing.
+  3. Headless Chrome verified focus-expanded and Escape-closed tooltips on all five dimensions, plus 22 correctly rendered canvases across the Merrill, inventory, real-estate, demographics and fiscal/external views with no error branch.
+
+### 宏观分析：版本化扩张度 + 完整 AI 报告
+
+概述：用可解释的五维 `0–100` 宏观扩张度取代旧四相位相加信号，并新增保留侧栏的全页 AI 宏观报告及可在 AI 设置中编辑的报告 Skill。
+变更：
+  1. 新增 `analysis/macro_score.py`：输出扩张度、压力、置信度、覆盖率和五个一级维度的逐项贡献；债务风险不再直接作为看多信号。
+  2. 删除 API 和信号历史中的旧 `[-4,+4]` composite 兼容字段；旧历史在首次新写入时清理，新旧尺度不再混用。
+  3. 首页综合概览改为展示新版扩张度、压力、置信度、维度贡献、支撑项和拖累项。
+  4. AI 评论批次新增完整 Markdown 报告；12 个固定章节拆为 3 段依次生成并校验合并，避开单次长响应与并发限制超时；首页卡片保留短评并增加“查看全文”，全页报告路由为 `/overview/report`，关闭后返回综合概览。
+  5. AI 设置新增可编辑的“宏观深度报告”Skill，并提供“载入默认”入口以便就地修改默认提示词；报告与短评共用同一数据快照和批次时间。
+  6. 同步 README、方法论文档、OpenAPI 和前端生成类型。
+验证：
+  1. 后端 `381 passed`；前端 Vitest `42 passed`、`vue-tsc` 类型检查和生产构建通过。
+  2. 实际数据返回扩张度 `49.7`、压力 `51.2`、置信度 `76.5`、覆盖率 `100%`；新版短评和 12 节完整报告均已落库。
+  3. 完整报告实测 `2094` 字，全部章节齐全；无头 Chrome 实际验证“查看全文”、保留侧栏、关闭按钮和 Escape 返回，以及 AI 设置中报告 Skill 可载入并编辑。
+
+### Macro analysis: versioned expansion score + full AI report
+
+Summary: Replaced the legacy four-phase sum with an explainable five-dimension 0–100 macro expansion score, and added a sidebar-preserving full-page AI macro report with an editable report skill.
+Changes:
+  1. Added `analysis/macro_score.py` with expansion, pressure, confidence, coverage, and per-dimension contributions; leverage risk is no longer automatically bullish.
+  2. Removed legacy `[-4,+4]` composite fields from the API and signal history; the first new history write retires the incompatible old table.
+  3. Updated the overview hero with the new score, pressure, confidence, component contributions, tailwinds, and headwinds.
+  4. Commentary batches now include a long-form Markdown report; 12 fixed chapters are generated as three sequential segments, validated, and merged to avoid single-response and provider-concurrency timeouts. The overview keeps the compact card and exposes a “查看全文” action at `/overview/report` with a close-to-overview flow.
+  5. Added an editable “宏观深度报告” skill in AI settings with a “load defaults” action for in-place editing; the report shares the compact commentary's snapshot and batch timestamp.
+  6. Updated README, methodology documentation, OpenAPI, and generated frontend types.
+Verification:
+  1. Backend tests passed `381`; frontend Vitest passed `42`, with `vue-tsc` typecheck and the production build also passing.
+  2. Live data returned an expansion score of `49.7`, pressure `51.2`, confidence `76.5`, and coverage `100%`; both the new compact commentary and the 12-section full report were persisted.
+  3. The full report measured `2094` characters with every required section present; headless Chrome verified “查看全文”, the retained sidebar, close button and Escape return, plus loading and editing the report skill in AI settings.
+
+### CRCL 监控：更新已发生事件与官方日历
+
+概述：根据官方结果补齐 CRCL 监控事件的完成状态、实际结果和已确认日期，并同步更新监控体系文档。
+变更：
+  1. 更新 Coinbase 协议续约、SEC Regulation Crypto、Arc 主网与 9 月 FOMC 为已发生，并修正实际内容和来源。
+  2. 修正 Clarity Act 为 9 月 15 日程序性投票未通过，保留后续参议院进程为进行中。
+  3. Q3 财报更新为 11 月 4 日，12 月 FOMC 更新为 12 月 9 日。
+  4. 同步更新 CRCL 关键日历、利率基线和监管事项说明。
+验证：
+  1. `backend/tests/test_crcl_json_schema.py` 11 项通过。
+  2. 运行中 API 返回 `updated_at=2026-10-25` 和更新后的事件状态。
+  3. 无头浏览器实际加载 `/crcl-monitor`，确认事件区展示全部新内容。
+
+### CRCL monitor: refresh completed events and official calendar
+
+Summary: Updated the CRCL monitor with official outcomes, completion states, and confirmed dates, and kept the monitor documentation aligned.
+Changes:
+  1. Marked the Coinbase renewal, SEC Regulation Crypto proposal, Arc mainnet, and September FOMC as completed with corrected facts and sources.
+  2. Corrected Clarity Act to the failed September 15 procedural vote and kept the remaining Senate process in progress.
+  3. Corrected Q3 earnings to November 4 and the December FOMC decision to December 9.
+  4. Synchronized the CRCL calendar, rate baseline, and regulatory notes.
+Verification:
+  1. `backend/tests/test_crcl_json_schema.py` passed 11 tests.
+  2. The live API returned `updated_at=2026-10-25` and the updated event states.
+  3. A headless browser loaded `/crcl-monitor` and confirmed every updated event appears in the timeline.
+
+### 数据：补齐 2026-09 美国 ISM 制造业 PMI
+
+概述：按官方发布值将美国 ISM 制造业 PMI 补充表从 2026-08 滚动更新到 2026-09，并同步维护取数手册。
+变更：
+  1. `scripts/01_fetch_data.py` 的 `_ISM_SUPPLEMENT` 新增 `2026-09=54.5`。
+  2. `docs/data-supplement-runbook.md` 同步当前覆盖期与官方发布说明。
+
+### Data: extend US ISM manufacturing PMI through September 2026
+
+Summary: Updated the official ISM manufacturing PMI supplement from August through September 2026 and kept the data runbook in sync.
+Changes:
+  1. Added `2026-09=54.5` to `_ISM_SUPPLEMENT` in `scripts/01_fetch_data.py`.
+  2. Updated the covered period and official release note in `docs/data-supplement-runbook.md`.
+
 ### 移除：未发布的指数估值实验功能
 
 概述：移除试验性指数估值页面及其整条数据链路，避免不成熟的口径和数据源干扰现有宏观分析。

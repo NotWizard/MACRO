@@ -35,17 +35,21 @@ function latest(col: string): number | null {
 const urbanOpt = themedOption(() => (buildMultiLine(dm.value, [{ col: 'urbanization_rate', name: '城镇化率' }], '%')))
 const popOpt = themedOption(() => (buildMultiLine(dm.value, [{ col: 'population', name: '年末总人口' }], '万人')))
 const birthOpt = themedOption(() => (buildMultiLine(dm.value, [{ col: 'birth_rate', name: '出生率' }, { col: 'natural_growth_rate', name: '自然增长率' }], '‰', 0, '零线')))
+const ageOpt = themedOption(() => (buildMultiLine(dm.value, [
+  { col: 'age_65plus_pct', name: '65 岁以上人口占比' },
+  { col: 'dependency_ratio', name: '抚养比' },
+], '%')))
 </script>
 
 <template>
   <div class="p-6 space-y-5">
     <header>
       <h1 class="text-xl font-bold text-text">人口与城镇化</h1>
-      <p class="text-xs text-text-3 mt-1">城镇化率 · 总人口 · 出生率 · 自然增长率（NBS 年度数据）</p>
+      <p class="text-xs text-text-3 mt-1">城镇化 · 人口结构 · 出生率 · 抚养比</p>
     </header>
 
     <!-- KPI -->
-    <div class="grid grid-cols-4 gap-3" v-if="dm.length">
+    <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3" v-if="dm.length">
       <div class="bg-card border border-border rounded-xl p-4">
         <div class="text-xs text-text-3">城镇化率</div>
         <div class="text-2xl font-bold text-text mt-1">{{ latest('urbanization_rate')?.toFixed(1) ?? '—' }}<span class="text-sm text-text-3 ml-0.5">%</span></div>
@@ -62,6 +66,14 @@ const birthOpt = themedOption(() => (buildMultiLine(dm.value, [{ col: 'birth_rat
         <div class="text-xs text-text-3">自然增长率</div>
         <div class="text-2xl font-bold text-text mt-1">{{ latest('natural_growth_rate')?.toFixed(2) ?? '—' }}<span class="text-sm text-text-3 ml-0.5">‰</span></div>
       </div>
+      <div class="bg-card border border-border rounded-xl p-4">
+        <div class="text-xs text-text-3">65 岁以上占比</div>
+        <div class="text-2xl font-bold text-text mt-1">{{ latest('age_65plus_pct')?.toFixed(1) ?? '—' }}<span class="text-sm text-text-3 ml-0.5">%</span></div>
+      </div>
+      <div class="bg-card border border-border rounded-xl p-4">
+        <div class="text-xs text-text-3">抚养比</div>
+        <div class="text-2xl font-bold text-text mt-1">{{ latest('dependency_ratio')?.toFixed(1) ?? '—' }}<span class="text-sm text-text-3 ml-0.5">%</span></div>
+      </div>
     </div>
 
     <GraphCard title="常住人口城镇化率" tip="城镇常住人口占总人口比重，反映城镇化进程。NBS 年度数据。" :loading="loading" :error="error" @retry="load">
@@ -74,6 +86,10 @@ const birthOpt = themedOption(() => (buildMultiLine(dm.value, [{ col: 'birth_rat
 
     <GraphCard title="出生率与自然增长率" tip="出生率（‰）与自然增长率（‰，= 出生率 − 死亡率）。0 线为人口零增长。" :loading="loading" :error="error" @retry="load">
       <EChart :option="birthOpt" height="300px" />
+    </GraphCard>
+
+    <GraphCard title="人口老龄化与抚养比" tip="65 岁以上人口占比与年龄抚养比（非劳动年龄人口 / 劳动年龄人口）。World Bank WDI 年度口径；抚养比上升意味着单位劳动人口承担更多少儿和老年人口。" :loading="loading" :error="error" @retry="load">
+      <EChart :option="ageOpt" height="300px" />
     </GraphCard>
   </div>
 </template>

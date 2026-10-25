@@ -11,12 +11,15 @@
 
 ## 0. 硬编码数据清单（Hardcoded Data Inventory）
 
-全仓排查（scripts/ analysis/ backend/ frontend/）后，**硬编码的时序数据**有两处：
+全仓排查（scripts/ analysis/ backend/ frontend/）后，**硬编码的时序数据**包括：
 
 | 指标 | 硬编码位置 | 内容 | 当前到 | 更新方式 |
 |---|---|---|---|---|
 | NIFD 宏观杠杆率（居民/非金/政府/中央/地方/实体） | `scripts/nifd_leverage.py` `NIFD_DATA`（单一真相源，`01`/`03` 均 import） | 季度杠杆率(%) | 2026-06 (2026Q2) | §1 Agent 补充 |
-| 美国 ISM 制造业 PMI | `scripts/01_fetch_data.py` `_ISM_SUPPLEMENT`（Jin10 源冻结于 2025-08 后的官方值补充表） | 月度 PMI（点） | 2026-08 | §7 Agent 逐月补官方值后跑 01 |
+| 美国 ISM 制造业 PMI | `scripts/01_fetch_data.py` `_ISM_SUPPLEMENT`（Jin10 源冻结于 2025-08 后的官方值补充表） | 月度 PMI（点） | 2026-09 | §7 Agent 逐月补官方值后跑 01 |
+| RatingDog（原财新）制造/服务 PMI | `scripts/01_fetch_data.py` `_RATINGDOG_SUPPLEMENT` | 月度 PMI（点） | 2026-06 至 2026-09 | S&P Global 发布页（Investing.com 镜像）逐月复核；§10 |
+| 2026-09 国家财政预算收支 | `scripts/01_fetch_data.py` `_MOF_SUPPLEMENT` | 累计亿元 / 累计同比 % | 2026-09 | 财政部前三季度发布；§10 |
+| 全国/31 城调查失业率 | `scripts/01_fetch_data.py` `_UNEMPLOYMENT_SUPPLEMENT` | 月度 % | 2026-07 至 2026-09 | NBS 月度发布会；§10 |
 
 **非时序数据（配置/分类逻辑，无需定期更新）**：
 - 城市清单 `CITIES`（`frontend/src/pages/RealEstate.vue`）/ `_DEFAULT_CITIES`（`backend/app/api/v1/real_estate.py`）/ `01_fetch_data.py` 房价城市列表 —— 配置。
@@ -85,7 +88,7 @@
 
 | 项 | 内容 |
 |---|---|
-| 现状 | DB 到 2026-07（已含 PBoC 备用源补齐的 05/06/07）；主源 akshare `macro_china_shrzgm`（MOFCOM 镜像）滞后 3-4 个月。 |
+| 现状 | DB 到 2026-09；主源 akshare `macro_china_shrzgm`（MOFCOM 镜像）在 Python 3.14 下仍可能因 `ssl.PROTOCOL_TLSv1_2` 缺失失败，`fetch_social_finance` 会先保留 staging 中的完整历史，再合并 PBoC 官方 XLSX 的新月份。 |
 | 备用源 | PBoC 调查统计司 XLSX——**已抽为单一真相源 `scripts/pbc_shrzgm.py`**（主源 01 的 fetch_social_finance 与其共用）。列表页 `http://www.pbc.gov.cn/diaochatongjisi/116219/116319/.../shrzgm/index.html` → 最新 `attachDir/*.xlsx`。 |
 | 独立补充脚本 | `scripts/04_supplement_social_finance.py`——脱离主管线的 CNBS 级联故障（`[Errno 9]`），单独经闸门补齐；主源滞后多期时优先跑它。 |
 | 怎么取 | GET 列表页→正则取最新 xlsx→`pandas.read_excel(header=None)`→数据行约第 11 行起；月份为 float（2026.05→5 月；注意 2026.1==10 月）；列对齐 DB（社会融资规模增量/人民币贷款/委托贷款/信托贷款/未贴现承兑/企业债券/股票）。 |
@@ -111,11 +114,11 @@
 | 频率 | 指标 | 发布窗口（次月） | 触发动作 |
 |---|---|---|---|
 | 月 | M2/新增信贷 (PBoC) | ~10-15 日 | 跑 `01_fetch_data.py` |
-| 月 | 工业 / 70城房价 (NBS) | ~15 日 | 跑 `01_fetch_data.py` |
-| 月 | CPI / PPI / PMI | ~9-10 日 / PMI 月末 | 跑 `01_fetch_data.py` |
+| 月 | 工业 / 社零 / 固投 / 10 城房价跟踪样本（NBS 70 城发布） / 房地产活动 | ~15 日 | 跑 `01_fetch_data.py` |
+| 月 | CPI / PPI / PMI / PMI 分项 | ~9-10 日 / PMI 月末 | 跑 `01_fetch_data.py` |
 | 月 | 社融 | ~15 日（主源滞后时自动走 PBoC XLSX 备用源） | 跑 `01_fetch_data.py` |
 | 月 | LPR | ~20 日 | 跑 `01_fetch_data.py` |
-| 月 | 美国 ISM 制造业 PMI | ~次月 1 日（ISM 官方 / PR Newswire） | akshare Jin10 源冻结于 2025-08；按 `_ISM_SUPPLEMENT`（01_fetch_data.py）逐月补官方值后跑 `01_fetch_data.py`；**2025-09~2026-08 已补齐**（2026-08=54.6，ISM 9/1 发布），后续逐月滚动维护 |
+| 月 | 美国 ISM 制造业 PMI | ~次月 1 日（ISM 官方 / PR Newswire） | akshare Jin10 源冻结于 2025-08；按 `_ISM_SUPPLEMENT`（01_fetch_data.py）逐月补官方值后跑 `01_fetch_data.py`；**2025-09~2026-09 已补齐**（2026-09=54.5，ISM 10/1 发布），后续逐月滚动维护 |
 
 ---
 
@@ -127,9 +130,13 @@
 |---|---|---|
 | M2/M1/M0、新增信贷 | **API** | akshare（新浪/东财） |
 | CPI / PPI / PMI | **API** | 东财数据中心 `RPT_ECONOMY_*` |
+| PMI 分项 | **API / HTML 表格** | NBS `www.stats.gov.cn/sj/zxfb/` 官方发布归档 |
 | GDP（累计季度） | **API** | akshare `macro_china_gdp` |
-| 财政收支 | **API** | akshare `macro_china_nbs_nation`（NBS 月度） |
-| 外需 货物进出口 | **API** | akshare `macro_china_nbs_nation`（NBS 月度） |
+| 财政收支 | **API + 官方补充** | NBS 主源；东财 `RPT_ECONOMY_INCOME` + 财政部发布页兜底 |
+| 外需 货物进出口 | **API + 兜底** | NBS 主源；AKShare `macro_china_hgjck()` / 东财海关接口兜底 |
+| 社零 / 固投 | **API** | 东财 `RPT_ECONOMY_TOTAL_RETAIL` / `RPT_ECONOMY_ASSET_INVEST` |
+| 房地产活动 | **HTML 表格** | NBS 月度房地产发布归档（最近 15 期） |
+| 全国/31 城失业率 | **API + 官方补充** | NBS API；最近三期使用发布会公布值 |
 | 社融 | **API** 主源 + **文件下载** 备用 | akshare `shrzgm` + PBoC 调查统计司 XLSX（程序化解析 Excel，非读网页） |
 | 债券收益率 | **API** | 中债信息网直连 |
 | 人口 总人口/城镇化率 | **API** | akshare `macro_china_nbs_nation`（NBS） |
@@ -206,3 +213,23 @@
 - **AKShare `macro_cnbs`** 会在 CNBS 更新后自动带上（无需动作），但滞后大（现到 2024-12），不可依赖。
 - **不建议**把 NIFD 抓取硬塞进自动刷新：发现最新期 + 解析数字不可靠，静默失败会污染数据库。
 - 推荐节奏：每季度 NIFD 报告发布后（约季后 1 个月），由 Agent 按本手册 §1 补充一期。
+
+---
+
+## 10. 2026-10 NBS WAF 波动期间补齐口径
+
+2026-10-25 实测 `data.stats.gov.cn` 查询接口会 302 到 `/waf_text_verify.html`，返回 HTML
+而不是 JSON。以下路径只使用公开、可复核的官方发布值；失败时保持上一份通过闸门的数据，
+不得用插值或“中性值”冒充真实观测。
+
+| 表 | 自动获取 | 当前覆盖 | 解析失败行为 |
+|---|---|---|---|
+| `pmi_detail` | `scripts/nbs_release.py` 扫描 `/sj/zxfb/`，读取最新一期 PMI 发布页的两张表 | 最新 13 个滚动月 | `save_to_db` 拒绝空表，保留旧表 |
+| `real_estate_activity` | 扫描最近 15 期「全国房地产市场基本情况」发布页 | 截至 2026-09；含开发投资、销售、新开工、竣工等 | 任一解析异常记录失败；旧表不覆盖 |
+| `domestic_demand` | 东财社零 + 东财固投；失业率优先 NBS API | 社零/固投长历史；失业率 2026-07 至 09 | 闸门要求社零与固投均实际存在 |
+| `fiscal` | NBS 优先；东财收入兜底；财政部支出补充 | 截至 2026-09 | 合并旧表后再校验，防止历史被截断 |
+| `external_demand` | NBS 优先；东财海关兜底 | 贸易截至 2026-09，ISM 补充至 2026-09 | 只填 NBS 空值，不覆盖已存在官方值 |
+
+**RatingDog PMI 缺口**：旧 AKShare/Jin10 接口停在 2025-09；2026-06 至 2026-09 已按
+S&P Global 发布值补齐。2025-10 至 2026-05 的免费中段历史尚未取得，图中会保留真实缺口，
+不以线性插值伪造。每月发布后先核对 S&P Global/Investing.com 的实际值，再追加到下月对应日期。

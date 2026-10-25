@@ -3,8 +3,8 @@
 Architecture (M4b generation layer; config via core/ai_config + keychain):
     build_section_snapshot() → per-section scalars + data_as_of + missing
     DEFAULT_TEMPLATES / get_templates() / template_hash() → prompts + version hash
-    generate()        → one structured call (validate → retry once → per-section
-                        fallback) → persist 7 rows (6 sections + overall, shared ts)
+    generate()        → structured compact call (validate → retry → fallback)
+                        + optional long report call → persist 7–8 rows at one ts
 
 Triggers:
     - lifespan startup: fire-and-forget generate if DB empty
@@ -32,10 +32,23 @@ from analysis.cycle_debt import classify_debt
 from analysis.cycle_inventory import classify_inventory
 from analysis.cycle_merrill import classify_merrill
 from analysis.real_estate import analyze_real_estate
+from analysis.signals import compute_signals
 from backend.app.core import ai_client, ai_config
 from backend.app.core.db import DB_PATH, _load_full, connect
 
 COMMENTARY_TABLE = "commentary"
+REPORT_SECTION = "report"
+REPORT_TITLE = "# 中国宏观分析报告"
+REPORT_MIN_CHARS = 1200
+REPORT_MAX_CHARS = 3200
+REPORT_PART_TIMEOUT_S = 420.0
+REPORT_SECTION_MAX_CHARS = 185
+REPORT_PARTS = (
+    ("diagnosis", ("核心结论", "数据与置信度", "增长与需求", "价格与利润传导")),
+    ("balance_sheet", ("信用、货币与政策", "债务与居民资产负债表", "房地产", "财政与外需")),
+    ("outlook", ("结构与长期约束", "矛盾与交叉验证", "情景与触发条件", "观察清单")),
+)
+REPORT_HEADINGS = tuple(heading for _, headings in REPORT_PARTS for heading in headings)
 
 _log = logging.getLogger(__name__)
 
@@ -217,7 +230,11 @@ def build_section_snapshot() -> dict:
         sec = {k: raw.get(k) for k in _FIELDS[name]}
         sec["missing"] = [k for k, v in sec.items() if v is None]
         sections[name] = sec
-    return {"data_as_of": _data_as_of(), "sections": sections}
+    try:
+        macro_score = compute_signals(str(DB_PATH)).get("macro_score")
+    except Exception:
+        macro_score = None
+    return {"data_as_of": _data_as_of(), "macro_score": macro_score, "sections": sections}
 
 
 # ── Templates: defaults + ai_config overrides + version hash ─────────────────
@@ -278,7 +295,8 @@ DEFAULT_TEMPLATES = {
     ),
     "real_estate": (
         "为「房地产」板块写 3-5 句研究备忘录。框架语义：三维评分（0-100，越高越支撑需求）——"
-        "杠杆空间（居民杠杆率相对 70% 上限的余量）、价格动能（70 城新房环比 12 个月均值相对 100 的偏离）、"
+        "杠杆空间（居民杠杆率相对 70% 上限的余量）、价格动能（项目当前跟踪的 10 个重点城市"
+        "新房环比 12 个月均值相对 100 的偏离，不可表述为全国 70 城全样本）、"
         "利率环境（5 年期 LPR 相对其历史中位数的偏离）。"
         "快照字段：composite_score（综合分）、leverage_space_score/price_momentum_score/rate_env_score"
         "（三分量）、household_leverage（居民杠杆率 %）、leverage_space_pp（余量 pp）、"
@@ -298,14 +316,33 @@ DEFAULT_TEMPLATES = {
         "输出格式：按上述结构分 3-4 行，每行一个要点，以「**核心判断**」开头"
         "（双星号内为不超过 15 字的结论短语），后接带数值佐证的展开；不加序号与小标题。"
     ),
+    "report": (
+        "撰写一份面向宏观投资者的完整中国宏观分析报告，篇幅 1500–2500 字。"
+        "必须依据数据快照中的 macro_score（总分、压力、置信度、五维分数与逐项原始值）、"
+        "六板块快照和对应短评；不得引用快照之外的数值、历史事实或政策事件。"
+        "报告使用 Markdown，按以下固定结构："
+        "## 核心结论；## 数据与置信度；## 增长与需求；## 价格与利润传导；"
+        "## 信用、货币与政策；## 债务与居民资产负债表；## 房地产；"
+        "## 财政与外需；## 结构与长期约束；## 矛盾与交叉验证；"
+        "## 情景与触发条件；## 观察清单。"
+        "每节按「观察事实 → 理论含义 → 交叉验证 → 本节判断」推进，段落优先，列表只用于观察清单。"
+        "核心结论必须说明当前宏观状态、最强支撑、最大拖累和置信度。"
+        "情景与触发条件必须同时给出基准、上行和下行三种情形；"
+        "结构与长期约束必须区分已有数据能够验证的部分和快照无法验证的未知项。"
+        "必须主动写出至少两个与主结论相反的证据；事实、推断、未知信息分别表述。"
+        "所有数字带单位和口径；没有快照数据时明确写“本期缺失”，不得编造。"
+        "不要给具体资产价格目标、买卖建议或仓位建议。"
+        "你只能使用宏观分析框架解释数据，不补充未被数据验证的新闻和制度背景。"
+    ),
     # overall：5 行标签式跨板块综合
     "overall": (
-        "写跨板块综合研判（不是逐板块复述），输出 5 行，每行以双星号标签开头、后接带数值佐证的展开："
-        "「**总判定**」当前宏观组合的一句话姿态（增长×通胀×货币×杠杆的组合）；"
-        "「**一致点**」六大框架之间最主要的一致方向，引用关键取值佐证；"
-        "「**背离点**」最主要的张力（如货币宽松与库存去化、财政发力与外需走弱）；"
-        "「**演化方向**」当前组合的可持续性与下一阶段最可能的演化；"
-        "「**风险信号**」最值得关注的一两个风险或确认信号（如下次 PMI 能否重回荣枯线上方）。"
+        "写跨板块综合研判（不是逐板块复述），输出 5 行，每行以双星号标签开头、后接带数值佐证的展开。"
+        "必须读取快照中的 macro_score，不得自行把四相位相加："
+        "「**总判定**」引用 0–100 宏观扩张度、标签、压力与置信度，再用增长×通胀×信用×杠杆解释；"
+        "「**一致点**」指出 macro_score.components 中最主要的一致方向，并引用板块取值；"
+        "「**背离点**」指出贡献方向冲突最大的两个维度（如外需强而信用和财政弱）；"
+        "「**演化方向**」说明当前组合的可持续性以及最关键的下一阶段分叉；"
+        "「**风险信号**」列出一两个可验证的确认/证伪信号，说明会改变扩张度或压力中的哪一项。"
         "全程不给投资建议，只做形势研判。"
     ),
 }
@@ -358,6 +395,161 @@ def _section_messages(name: str, snapshot: dict, tpls: dict) -> list[dict]:
             {"role": "user", "content": user}]
 
 
+def _report_messages(snapshot: dict, parts: dict, tpls: dict,
+                     headings: tuple[str, ...]) -> list[dict]:
+    """Prompt for the cached long-form report attached to the same batch."""
+    compact = {
+        "overall": parts.get("overall", ""),
+        "sections": {k: parts.get(k, "") for k in SECTIONS},
+    }
+    user = (
+        "数据快照（JSON）：\n" + json.dumps(snapshot, ensure_ascii=False)
+        + "\n\n同一批次短评（JSON）：\n" + json.dumps(compact, ensure_ascii=False)
+        + "\n\n完整报告写作 Skill：\n" + tpls["report"]
+        + "\n\n本次分段任务：只写以下章节，必须逐字使用给定的二级标题，"
+          "不要写报告总标题、其他章节、前言或代码围栏：\n"
+        + "\n".join(f"## {heading}" for heading in headings)
+        + "\n每节约 120–220 字；本段合计约 500–850 字。"
+        + "\n\n本次是完整报告任务：忽略系统提示中“只输出 JSON”的格式要求，"
+          "直接输出中文 Markdown。不要输出代码围栏、前言或生成过程。"
+    )
+    system = (
+        tpls["system"]
+        + "\n本次完整报告任务例外：最终输出必须是中文 Markdown，而不是 JSON。"
+          "其余关于只使用快照、不得编造、不得投资建议的约束全部保留。"
+    )
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def _clean_report(text: str) -> str:
+    raw = (text or "").strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+        if raw.rstrip().endswith("```"):
+            raw = raw.rstrip()[:-3].rstrip()
+    obj = _extract_json(raw)
+    if isinstance(obj, dict):
+        for key in ("report", "markdown", "content"):
+            value = obj.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return raw
+
+
+def _valid_report_part(text: str, headings: tuple[str, ...]) -> bool:
+    body = text.strip()
+    return (
+        200 <= len(body) <= 1800
+        and all(f"## {heading}" in body for heading in headings)
+    )
+
+
+def _trim_section(text: str, limit: int = REPORT_SECTION_MAX_CHARS) -> str:
+    """Keep complete arguments; never leave a dangling list item or ellipsis."""
+    body = text.strip()
+    if len(body) <= limit:
+        return body
+    lines = body.splitlines()
+    if any(line.startswith(("- ", "* ")) for line in lines):
+        kept: list[str] = []
+        used = 0
+        for line in lines:
+            cost = len(line) + (1 if kept else 0)
+            if used + cost > limit:
+                break
+            kept.append(line)
+            used += cost
+        if kept:
+            return "\n".join(kept).rstrip()
+    cut = max(body.rfind(mark, 0, limit) for mark in ("。", "！", "？"))
+    if cut >= limit // 2:
+        return body[:cut + 1].rstrip()
+    return body[:limit].rstrip()
+
+
+def _fit_report_part(text: str, headings: tuple[str, ...]) -> str:
+    """Bound each generated section while retaining every required heading."""
+    chunks: list[str] = []
+    current: str | None = None
+    body: list[str] = []
+    wanted = {f"## {heading}": heading for heading in headings}
+
+    def flush() -> None:
+        if current is not None:
+            chunks.append(f"{current}\n{_trim_section(chr(10).join(body))}")
+
+    for raw in text.replace("\r\n", "\n").splitlines():
+        line = raw.strip()
+        if line in wanted:
+            flush()
+            current = line
+            body = []
+        elif current is not None and line:
+            body.append(line)
+    flush()
+    return "\n\n".join(chunks)
+
+
+def _valid_report(text: str) -> bool:
+    body = text.strip()
+    return (
+        REPORT_MIN_CHARS <= len(body) <= REPORT_MAX_CHARS
+        and all(f"## {heading}" in body for heading in REPORT_HEADINGS)
+    )
+
+
+def _call_report_part(profile: dict, key: str, snapshot: dict, parts: dict,
+                      tpls: dict, name: str, headings: tuple[str, ...]) -> str:
+    """Generate one bounded report segment, retrying one malformed response."""
+    messages = _report_messages(snapshot, parts, tpls, headings)
+    last_format_error = ""
+    for attempt in range(2):
+        if attempt:
+            messages = messages + [
+                {"role": "assistant", "content": last_format_error},
+                {
+                    "role": "user",
+                    "content": "上一段未通过格式校验。请只输出指定章节，并逐字保留 "
+                               "指定的 ## 二级标题，不要输出总标题或其他内容。",
+                },
+            ]
+        raw = ai_client.call_chat(
+            profile, key, messages, timeout=REPORT_PART_TIMEOUT_S)
+        text = _clean_report(raw)
+        if _valid_report_part(text, headings):
+            return _fit_report_part(text, headings)
+        last_format_error = f"分段 {name} 未包含全部指定标题或长度不合格"
+        _log.warning("commentary 报告分段校验失败（%s）：len=%s",
+                     name, len(text))
+    raise ValueError(last_format_error)
+
+
+def _call_report(profile: dict, key: str, snapshot: dict,
+                 parts: dict, tpls: dict) -> tuple[str | None, str | None]:
+    """Generate the optional long report without invalidating the short batch.
+
+    Three bounded sections run sequentially, then concatenate in fixed order.
+    A provider/format failure leaves the compact commentary intact and marks
+    only the full-report action missing.
+    """
+    try:
+        chunks = [
+            _call_report_part(profile, key, snapshot, parts, tpls, name, headings)
+            for name, headings in REPORT_PARTS
+        ]
+    except ai_client.AiError as e:
+        _log.warning("commentary 完整报告调用失败（stage=%s）：%s", e.stage, e)
+        return None, f"全文报告生成失败（{e.stage}）"
+    except Exception as e:
+        _log.exception("commentary 完整报告生成异常")
+        return None, f"全文报告生成异常（{type(e).__name__}）"
+    report = REPORT_TITLE + "\n\n" + "\n\n".join(chunks)
+    if not _valid_report(report):
+        _log.warning("commentary 完整报告校验失败：len=%s", len(report))
+        return None, "全文报告未通过长度/格式校验"
+    return report, None
+
+
 def _extract_json(text: str) -> dict | None:
     """提取第一个可解析的平衡 {...}：容忍前后散文、markdown 围栏、嵌套大括号。
 
@@ -390,8 +582,27 @@ def _extract_json(text: str) -> dict | None:
     return None
 
 
-def _valid_text(v) -> bool:
-    return isinstance(v, str) and 0 < len(v.strip()) <= 600
+def _valid_text(v, max_chars: int = 600) -> bool:
+    return isinstance(v, str) and 0 < len(v.strip()) <= max_chars
+
+
+def _compact_overall(v) -> str:
+    """Keep the homepage overview genuinely compact even when the model rambles.
+
+    The long-form output belongs in the separate report call. For the five-line
+    overview we retain at most five non-empty lines and trim to 900 characters at
+    a sentence boundary rather than discarding the whole otherwise-valid batch.
+    """
+    if not isinstance(v, str):
+        return ""
+    lines = [line.strip() for line in v.splitlines() if line.strip()][:5]
+    text = "\n".join(lines)
+    if len(text) <= 900:
+        return text
+    cut = text.rfind("。", 0, 900)
+    if cut < 500:
+        return text[:899].rstrip("。 ") + "…"
+    return text[:cut].rstrip("。 ") + "…"
 
 
 def _unwrap_section(text: str, name: str) -> str:
@@ -431,10 +642,11 @@ def _validate_structured(raw: str) -> tuple[dict, list[str]]:
                 problems.append(f"sections.{k} 为空或超 600 字")
             else:
                 parts[k] = secs[k].strip()
-    if not _valid_text(obj.get("overall")):
-        problems.append("overall 为空或超 600 字")
+    overall = _compact_overall(obj.get("overall"))
+    if not _valid_text(overall, 900):
+        problems.append("overall 为空或超 900 字")
     else:
-        parts["overall"] = obj["overall"].strip()
+        parts["overall"] = overall
     return parts, problems
 
 
@@ -454,6 +666,8 @@ def _call_structured_with_fallback(profile: dict, key: str,
         parts, problems = _validate_structured(raw)
         if not problems:
             return parts
+        _log.warning("commentary 结构化校验未通过：%s（输出 %s 字）",
+                     "；".join(problems), len(raw))
         best.update(parts)                          # 保留已合格的部分
         messages = messages + [
             {"role": "assistant", "content": raw},
@@ -462,7 +676,8 @@ def _call_structured_with_fallback(profile: dict, key: str,
     # transport_failed 时跳过：死网络上补调只是每次白吃 60s timeout
     if not transport_failed:
         for name in (*SECTIONS, "overall"):
-            if _valid_text(best.get(name)):
+            limit = 900 if name == "overall" else 600
+            if _valid_text(best.get(name), limit):
                 continue
             try:
                 text = ai_client.call_chat(profile, key, _section_messages(name, snapshot, tpls), timeout=300.0)
@@ -470,13 +685,21 @@ def _call_structured_with_fallback(profile: dict, key: str,
                 _log.warning("commentary 板块补调失败（%s，stage=%s）：%s", name, e.stage, e)
                 break                               # 同结构化循环：网络错误换板块重试无意义
             text = _unwrap_section(text, name)
-            if _valid_text(text):
+            if name == "overall":
+                text = _compact_overall(text)
+            if _valid_text(text, limit):
                 best[name] = text.strip()
-    return best if all(_valid_text(best.get(k)) for k in (*SECTIONS, "overall")) else None
+            else:
+                _log.warning("commentary 板块补调未通过：%s（输出 %s 字）", name, len(text))
+    return (
+        best if all(_valid_text(best.get(k), 900 if k == "overall" else 600)
+                    for k in (*SECTIONS, "overall"))
+        else None
+    )
 
 
 def generate(blocking: bool = True) -> dict:
-    """Snapshot → structured model call → persist 7-row batch.
+    """Snapshot → compact call → optional report call → persist one batch.
 
     blocking=True  → caller waits for the model call（测试/脚本直调）。
     blocking=False → fire-and-forget on a worker thread (startup/refresh/手动 POST)。
@@ -546,12 +769,22 @@ def _generate_locked() -> dict:
         if parts is None:                      # 全败 → 不写库，保留 last-good
             return {"status": "error",
                     "msg": "生成失败：重试与逐板块补调均未通过校验（已保留上一版评论）"}
-        return _persist_batch(snapshot, parts, profile, tpls)
+        # Persist the compact batch first. The overview can receive the new
+        # summary while the slower long-form call is still running; report
+        # failure can no longer discard an otherwise valid summary.
+        out = _persist_batch(snapshot, parts, profile, tpls)
+        report_text, report_msg = _call_report(profile, key, snapshot, parts, tpls)
+        if report_text:
+            out = _append_report(
+                out["provenance"]["generated_at"], snapshot, report_text, profile, tpls)
+        elif report_msg:
+            out["report_msg"] = report_msg
+        return out
     except Exception as e:
         return {"status": "error", "msg": f"生成失败：{type(e).__name__}: {e}"}
 
 
-# ── Persistence: 7 rows per batch (shared ts = batch key) ────────────────────
+# ── Persistence: 7 compact rows + optional long report (shared batch ts) ─────
 
 KEEP_BATCHES = 10   # 轮转：保留最近 N 个 generated_at 批次（M4c）
 
@@ -566,7 +799,8 @@ def _prune(conn: sqlite3.Connection) -> None:
                          [(r[0],) for r in old])
 
 
-def _persist_batch(snapshot: dict, parts: dict, profile: dict, tpls: dict) -> dict:
+def _persist_batch(snapshot: dict, parts: dict, profile: dict, tpls: dict,
+                   report_text: str | None = None) -> dict:
     ts = _ts()
     rows = [(ts, json.dumps(snapshot["data_as_of"], ensure_ascii=False),
              json.dumps(snapshot, ensure_ascii=False),   # phase_snapshot 复用：模型看到的原始输入
@@ -574,6 +808,13 @@ def _persist_batch(snapshot: dict, parts: dict, profile: dict, tpls: dict) -> di
              profile.get("endpoint", "chat_completions"),
              template_hash(tpls), profile["name"])
             for name in (*SECTIONS, "overall")]
+    if report_text:
+        rows.append((
+            ts, json.dumps(snapshot["data_as_of"], ensure_ascii=False),
+            json.dumps(snapshot, ensure_ascii=False), report_text, profile["model"],
+            REPORT_SECTION, profile.get("endpoint", "chat_completions"),
+            template_hash(tpls), profile["name"],
+        ))
     conn = _connect()
     try:
         _ensure_table(conn)
@@ -599,16 +840,44 @@ def _latest_batch(conn: sqlite3.Connection) -> dict:
     return _batch_to_dict(rows)
 
 
+def _append_report(ts: str, snapshot: dict, report_text: str,
+                   profile: dict, tpls: dict) -> dict:
+    """Attach the long report to an already-persisted compact batch."""
+    conn = _connect()
+    try:
+        _ensure_table(conn)
+        conn.execute(
+            f"INSERT INTO {COMMENTARY_TABLE} "
+            "(ts, data_as_of, phase_snapshot, text, model, section, "
+            "endpoint, template_hash, profile, stale) VALUES (?,?,?,?,?,?,?,?,?,0)",
+            (
+                ts, json.dumps(snapshot["data_as_of"], ensure_ascii=False),
+                json.dumps(snapshot, ensure_ascii=False), report_text,
+                profile["model"], REPORT_SECTION,
+                profile.get("endpoint", "chat_completions"),
+                template_hash(tpls), profile["name"],
+            ),
+        )
+        conn.commit()
+        return _latest_batch(conn)
+    finally:
+        conn.close()
+
+
 def _batch_to_dict(rows: list[sqlite3.Row]) -> dict:
     first = rows[0]
     sections: dict = {}
     overall = ""
+    report = ""
     stale = False
     for row in rows:
-        if (row["section"] or "overall") == "overall":
+        section = row["section"] or "overall"
+        if section == "overall":
             overall = row["text"]
+        elif section == REPORT_SECTION:
+            report = row["text"]
         else:
-            sections[row["section"]] = row["text"]
+            sections[section] = row["text"]
         stale = stale or bool(row["stale"])
     # data_as_of：新批次存 JSON dict；legacy 单行是裸 "YYYY-MM" → 兜底 dict
     try:
@@ -618,6 +887,8 @@ def _batch_to_dict(rows: list[sqlite3.Row]) -> dict:
     except Exception:
         as_of = {"derived_monthly": first["data_as_of"]}
     return {"status": "ok", "stale": stale, "overall": overall, "sections": sections,
+            "report": report, "report_status": "ready" if report else "missing",
+            "report_msg": None if report else "本批次暂无全文报告",
             "provenance": {"model": first["model"], "endpoint": first["endpoint"],
                            "template_hash": first["template_hash"], "data_as_of": as_of,
                            "profile": first["profile"], "generated_at": first["ts"]}}
@@ -672,13 +943,15 @@ def history_index() -> list[dict]:
             _ensure_table(conn)
         rows = conn.execute(
             f"SELECT ts, model, profile, template_hash, MAX(stale) AS stale, "
-            f"MAX(CASE WHEN COALESCE(section,'overall')='overall' THEN text END) AS ov "
+            f"MAX(CASE WHEN COALESCE(section,'overall')='overall' THEN text END) AS ov, "
+            f"MAX(CASE WHEN section='{REPORT_SECTION}' THEN 1 ELSE 0 END) AS report_available "
             f"FROM {COMMENTARY_TABLE} GROUP BY ts ORDER BY ts DESC").fetchall()
     finally:
         conn.close()
     return [{"generated_at": r["ts"], "model": r["model"], "profile": r["profile"],
              "template_hash": r["template_hash"], "status": "ok",
              "stale": bool(r["stale"]),
+             "report_available": bool(r["report_available"]),
              "overall_preview": (r["ov"][:80] + "…") if r["ov"] and len(r["ov"]) > 80
                                 else (r["ov"] or "")}
             for r in rows]

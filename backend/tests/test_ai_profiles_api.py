@@ -162,7 +162,7 @@ def test_templates_get_defaults():
     assert r.status_code == 200
     body = r.json()
     assert body["overrides"] == {}
-    assert set(body["defaults"]) == set(commentary.DEFAULT_TEMPLATES)   # 恰 8 键
+    assert set(body["defaults"]) == set(commentary.DEFAULT_TEMPLATES)   # 恰 9 键
     assert body["template_hash"] == commentary.template_hash()
     assert len(body["template_hash"]) == 64
 

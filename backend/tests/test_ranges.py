@@ -20,8 +20,12 @@ N = 220  # ≥ cpi.min_rows(200)
 
 
 def _df(values):
+    # Keep the range-gate fixtures fresh enough for the independent staleness
+    # guard. A hard-coded 2008 anchor eventually exceeded max_date_lag and made
+    # pure range tests fail solely because wall-clock time had advanced.
+    end = pd.Timestamp.today().normalize().replace(day=1)
     return pd.DataFrame({
-        "date": pd.date_range("2008-01-01", periods=len(values), freq="MS")
+        "date": pd.date_range(end=end, periods=len(values), freq="MS")
                  .strftime("%Y-%m-%d"),
         "cpi_yoy": values,
     })

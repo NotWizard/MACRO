@@ -94,7 +94,7 @@ def set_active(body: ActiveIn):
 
 @router.get("/templates", response_model=TemplatesOut)
 def get_templates():
-    """默认 8 模板全文 + 当前覆盖（规范化）+ template_hash。"""
+    """默认 9 模板全文 + 当前覆盖（规范化）+ template_hash。"""
     overrides = {k: v for k, v in (ai_config.load().get("templates") or {}).items()
                  if k in commentary.DEFAULT_TEMPLATES and isinstance(v, str) and v.strip()}
     return TemplatesOut(defaults=dict(commentary.DEFAULT_TEMPLATES),

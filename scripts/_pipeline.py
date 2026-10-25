@@ -88,6 +88,14 @@ TABLE_SPECS = {
                              ranges=dict(ppi_yoy=(-15, 20)), max_date_lag=200),
     "pmi":              dict(min_rows=200, required=["pmi_official"],
                              ranges=dict(pmi_official=(30, 70))),
+    "pmi_detail":       dict(min_rows=10, required=[
+                                 "pmi_official", "production", "new_orders",
+                                 "raw_material_inventory", "finished_goods_inventory",
+                             ],
+                             ranges=dict(pmi_official=(30, 70), production=(20, 80),
+                                         new_orders=(20, 80), raw_material_inventory=(20, 70),
+                                         finished_goods_inventory=(20, 70)),
+                             max_date_lag=120),
     "leverage":         dict(min_rows=40,  required=["household"],
                              ranges=dict(household=(0, 120), non_fin_corp=(50, 300),
                                          gov_total=(0, 150), real_economy=(50, 500))),
@@ -98,18 +106,36 @@ TABLE_SPECS = {
     "industrial":       dict(min_rows=100, required=["ip_yoy"],
                              ranges=dict(ip_yoy=(-20, 30), ip_cumulative=(-30, 45)),
                              max_date_lag=200),
+    "domestic_demand":  dict(min_rows=100, required=["retail_current", "fai_current"],
+                             ranges=dict(retail_current=(-100000, 100000),
+                                         retail_yoy=(-50, 70),
+                                         fai_current=(-100000, 100000),
+                                         fai_yoy=(-60, 60),
+                                         unemployment_rate=(0, 20),
+                                         unemployment_31_city=(0, 20)),
+                             max_date_lag=220),
     # 10-城市面板：粒度是 (date, city)，不是 date。只按 date 防缩水会漏掉「7 个城市
     # 失败但日期集不变」的坍塌（行数 1860→558 仍过 min_rows 且日期数不降），
     # if_exists="replace" 会因此删掉另外 7 城全部历史。min_groups 对齐
     # fetch_house_price 里硬编码的 10 城清单（新增城市时同步上调）。
     "house_price":      dict(min_rows=500, required=["date", "new_yoy"],
                              key=["date", "city"], min_groups=10),
+    "real_estate_activity": dict(
+        min_rows=10,
+        required=["sales_area_cum", "new_start_area_cum", "completed_area_cum"],
+        ranges=dict(investment_yoy=(-90, 80), sales_area_yoy=(-90, 100),
+                    sales_value_yoy=(-90, 150), new_start_area_yoy=(-90, 100),
+                    completed_area_yoy=(-90, 100),
+                    investment_cum=(0, 500000), sales_area_cum=(0, 500000)),
+        max_date_lag=120,
+    ),
     "household_income": dict(min_rows=8, required=["income_abs"]),  # annual, sparse; income_abs 派生入 hh_debt
     "new_credit":       dict(min_rows=100, required=["new_rmb_loan"], max_date_lag=200),
     "bond_yield":       dict(min_rows=100,  required=["y_10y"],
                              ranges=dict(y_10y=(0, 10)), max_date_lag=200),  # monthly resampled, ~20y
     "demographics":   dict(min_rows=8, required=["population"],
-                           ranges=dict(urbanization_rate=(0, 100), birth_rate=(0, 60))),  # annual, ~30y, NBS/WB (may be blocked)
+                           ranges=dict(urbanization_rate=(0, 100), birth_rate=(0, 60),
+                                       age_65plus_pct=(0, 60), dependency_ratio=(0, 120))),  # annual, ~30y, NBS/WB
     # NBS 月度财政收支（2015- 起约 120+ 月）；同比为累计增长口径
     "fiscal":           dict(min_rows=100, required=["revenue_cum", "expenditure_cum"],
                              ranges=dict(revenue_cum_yoy=(-30, 40),

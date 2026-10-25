@@ -45,6 +45,10 @@ import dual_sources  # noqa: E402
 from signal_history import append_signal_history  # noqa: E402
 from nifd_leverage import nifd_supplement_df  # noqa: E402
 from pbc_shrzgm import pbc_shrzgm_supplement_df  # noqa: E402 — 单一真相源（01+04 共用）
+from nbs_release import (  # noqa: E402
+    fetch_pmi_details as _fetch_nbs_pmi_details,
+    fetch_real_estate_activity as _fetch_nbs_real_estate_activity,
+)
 from _specs import DATE_PARSERS, FETCH_SPECS, pick_curve_table, to_num  # noqa: E402
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "macro_data.db")
@@ -151,6 +155,9 @@ TABLE_TIMEOUT_S = {
     "fiscal": 180.0,
     "household_income": 180.0,
     "external_demand": 180.0,
+    "pmi_detail": 180.0,
+    "real_estate_activity": 300.0,
+    "domestic_demand": 180.0,
 }
 # 整轮墙钟上限：无论多少表挂住，进程一定会结束（API 侧另有 REFRESH_TIMEOUT_S=300
 # 的父进程超时；这里是给 launchd/cron 无父进程场景的自守）
@@ -536,6 +543,31 @@ def fetch_pmi(conn):
                 .merge(non, on="date", how="outer") \
                 .merge(svc, on="date", how="outer") \
                 .sort_values("date").reset_index(drop=True)
+
+    # 2025-08 起该指数改用 RatingDog 品牌，旧的 AKShare/Jin10 接口停在
+    # 2025-09。这里只补已经由 S&P Global 新闻稿确认、并被 Investing.com
+    # 镜像列出的近期值；不插值，也不把缺失月份伪造成中性值。
+    _RATINGDOG_SUPPLEMENT = {
+        "2026-06-01": (51.7, 54.1),
+        "2026-07-01": (50.9, 50.4),
+        "2026-08-01": (51.5, 51.4),
+        "2026-09-01": (52.1, 51.6),
+    }
+    have = set(result["date"])
+    for d, (manufacturing, services) in _RATINGDOG_SUPPLEMENT.items():
+        if d in have:
+            result.loc[result["date"] == d, "pmi_caixin"] = manufacturing
+            result.loc[result["date"] == d, "pmi_caixin_svc"] = services
+        else:
+            result = pd.concat([
+                result,
+                pd.DataFrame([{
+                    "date": d,
+                    "pmi_caixin": manufacturing,
+                    "pmi_caixin_svc": services,
+                }]),
+            ], ignore_index=True)
+    result = result.sort_values("date").reset_index(drop=True)
     save_to_db(result, "pmi", conn)
     return result
 
@@ -607,6 +639,18 @@ def fetch_social_finance(conn):
         log(f"  ⚠️ 社融数据采集失败 (SSL问题): {e}")
         log(f"  → 请在正式 Python 环境中重新运行")
         result = pd.DataFrame()
+
+    # Python 3.14 removed ssl.PROTOCOL_TLSv1_2, which the legacy AKShare
+    # adapter still references.  When the primary source fails, retain the
+    # previously-good history from staging before applying the PBoC delta.
+    try:
+        previous = pd.read_sql("SELECT * FROM social_finance", conn)
+    except Exception:
+        previous = pd.DataFrame()
+    if not previous.empty:
+        result = (pd.concat([previous, result], ignore_index=True)
+                  .drop_duplicates(subset=["date"], keep="last")
+                  .sort_values("date").reset_index(drop=True))
 
     # PBoC 官方 XLSX 备用源: 仅追加比主源更新的月份(如主源滞后时的 2026-05/06)
     sup = pbc_shrzgm_supplement_df()
@@ -903,10 +947,10 @@ def _nbs_population() -> "pd.DataFrame | None":
 
 
 def fetch_demographics(conn):
-    """年度人口指标：城镇化率 / 总人口 / 出生率 / 自然增长率。
+    """Annual population, urbanisation, ageing and dependency indicators.
 
     人口/城镇化率优先 NBS 官方（与统计局公报一致），World Bank 回退；
-    出生率/自然增长率用 World Bank（NBS 经 akshare 无可用 path）。
+    出生率/死亡率、65 岁以上占比和抚养比用 World Bank。
     """
     log("采集: 人口与城镇化（NBS 优先, World Bank 回退） ...")
 
@@ -938,8 +982,10 @@ def fetch_demographics(conn):
 
     birth = _fetch_wb("SP.DYN.CBRT.IN", "birth_rate")
     death = _fetch_wb("SP.DYN.CDRT.IN", "death_rate")
+    ageing = _fetch_wb("SP.POP.65UP.TO.ZS", "age_65plus_pct")
+    dependency = _fetch_wb("SP.POP.DPND", "dependency_ratio")
     merged = pop_urb
-    for d in (birth, death):
+    for d in (birth, death, ageing, dependency):
         if not d.empty:
             merged = merged.merge(d, on="date", how="left")
     if "birth_rate" in merged.columns and "death_rate" in merged.columns:
@@ -995,9 +1041,14 @@ def _nbs_cum_yoy(df, cum_col, yoy_col):
 
 
 def fetch_fiscal(conn):
-    """国家财政预算收入/支出（NBS 月度）。两路径各自长表化后按月外连接。
-    NBS 不可达 → 空 df → 闸门记 kept_previous（与 household_income 同款降级）。"""
-    log("采集: 财政收支（NBS 月度） ...")
+    """National fiscal revenue/expenditure with free fallbacks.
+
+    NBS remains the preferred history source.  When its WAF blocks the current
+    release, Eastmoney supplies the official revenue series and the MOF release
+    supplies the missing expenditure print.  Existing rows are merged first, so
+    a partial fallback can never truncate the history.
+    """
+    log("采集: 财政收支（NBS 优先，东财/财政部补齐） ...")
     wides = []
     for path, cum_col, yoy_col in [
         ("财政 > 国家财政预算收入", "revenue_cum", "revenue_cum_yoy"),
@@ -1009,12 +1060,67 @@ def fetch_fiscal(conn):
         except Exception as e:
             log(f"  ⚠️ {path} 采集失败: {e}")
 
-    if not wides:
+    nbs = pd.DataFrame()
+    if wides:
+        nbs = wides[0]
+        for wide in wides[1:]:
+            nbs = nbs.merge(wide, on="date", how="outer")
+
+    try:
+        old = pd.read_sql("SELECT * FROM fiscal", conn)
+    except Exception:
+        old = pd.DataFrame()
+
+    def merge_missing(preferred: pd.DataFrame, fallback: pd.DataFrame) -> pd.DataFrame:
+        """Merge on date while preserving a non-null preferred value."""
+        if preferred.empty:
+            return fallback.copy()
+        if fallback.empty:
+            return preferred.copy()
+        out = preferred.merge(fallback, on="date", how="outer", suffixes=("", "_alt"))
+        for col in [c for c in fallback.columns if c != "date"]:
+            alt = f"{col}_alt"
+            if alt not in out.columns:
+                continue
+            if col in out.columns:
+                out[col] = out[col].combine_first(out[alt])
+            else:
+                out[col] = out[alt]
+            out = out.drop(columns=[alt])
+        return out
+
+    # The Eastmoney endpoint mirrors the same MOF release and has a stable,
+    # longer history than ad-hoc page parsing.
+    em = _fetch_eastmoney("RPT_ECONOMY_INCOME", {
+        "REPORT_DATE": "date",
+        "BASE_ACCUMULATE": "revenue_cum",
+        "ACCUMULATE_SAME": "revenue_cum_yoy",
+    })
+    if not em.empty:
+        em["date"] = pd.to_datetime(em["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+        em["revenue_cum"] = to_num(em["revenue_cum"])
+        em["revenue_cum_yoy"] = to_num(em["revenue_cum_yoy"])
+        em = em.dropna(subset=["date", "revenue_cum"])
+    else:
+        em = pd.DataFrame()
+        log("  ⚠️ 东财财政收入无数据")
+
+    # MOF publishes the expenditure release a little later than Eastmoney's
+    # revenue mirror.  Values are cumulative Jan–Sep 2026 in 亿元 and %.
+    _MOF_SUPPLEMENT = pd.DataFrame([{
+        "date": "2026-09-01",
+        "revenue_cum": 172292.0,
+        "revenue_cum_yoy": 5.1,
+        "expenditure_cum": 210199.0,
+        "expenditure_cum_yoy": 1.0,
+    }])
+
+    result = merge_missing(nbs, old)
+    result = merge_missing(result, em)
+    result = merge_missing(result, _MOF_SUPPLEMENT)
+    if result.empty:
         save_to_db(pd.DataFrame(), "fiscal", conn)
         return pd.DataFrame()
-    result = wides[0]
-    for w in wides[1:]:
-        result = result.merge(w, on="date", how="outer")
     result = result.sort_values("date").reset_index(drop=True)
     save_to_db(result, "fiscal", conn)
     return result
@@ -1044,17 +1150,62 @@ def fetch_external_demand(conn):
         long = pd.DataFrame()
 
     if long.empty:
+        result = pd.DataFrame(columns=["date"])
+    else:
+        result = pd.DataFrame({"date": sorted(set(long["date"]))})
+        for kw, (col, scale) in trade_map.items():
+            sub = (long[long["indicator"].str.startswith(kw)]
+                   .groupby("date")["value"].last().reset_index())
+            if not sub.empty:
+                sub["value"] = (sub["value"] / scale).round(2)
+                result = result.merge(
+                    sub.rename(columns={"value": col}), on="date", how="left")
+
+    # NBS's data API is intermittently WAF-protected.  Eastmoney publishes the
+    # same customs releases with current monthly values, so use it only to fill
+    # missing NBS cells.  Existing official NBS values always win.
+    try:
+        raw = ak.macro_china_hgjck()
+        fallback = pd.DataFrame({
+            "date": [DATE_PARSERS["cn_month"](value) for value in raw["月份"]],
+            "exports": to_num(raw["当月出口额-金额"]) / 1e5,
+            "exports_yoy": to_num(raw["当月出口额-同比增长"]),
+            "imports": to_num(raw["当月进口额-金额"]) / 1e5,
+            "imports_yoy": to_num(raw["当月进口额-同比增长"]),
+        })
+        fallback = fallback.dropna(subset=["date"]).sort_values("date")
+        fallback["trade_balance"] = (
+            fallback["exports"] - fallback["imports"]
+        ).round(2)
+        total = fallback["exports"] + fallback["imports"]
+        fallback["trade_total_yoy"] = (
+            total / total.shift(12) - 1.0
+        ).mul(100.0).round(2)
+        fallback[["exports", "imports"]] = fallback[
+            ["exports", "imports"]
+        ].round(3)
+
+        merged = result.merge(fallback, on="date", how="outer", suffixes=("", "_em"))
+        for col in fallback.columns:
+            if col == "date":
+                continue
+            alt = f"{col}_em"
+            if col in merged.columns and alt in merged.columns:
+                merged[col] = merged[col].combine_first(merged[alt])
+                merged = merged.drop(columns=[alt])
+        result = merged
+    except Exception as e:
+        log(f"  ⚠️ 东财海关进出口兜底失败: {e}")
+
+    if result.empty:
         save_to_db(pd.DataFrame(), "external_demand", conn)
         return pd.DataFrame()
 
-    result = pd.DataFrame({"date": sorted(set(long["date"]))})
-    for kw, (col, scale) in trade_map.items():
-        sub = long[long["indicator"].str.startswith(kw)].groupby("date")["value"].last().reset_index()
-        if not sub.empty:
-            sub["value"] = (sub["value"] / scale).round(2)
-            result = result.merge(sub.rename(columns={"value": col}), on="date", how="left")
-
-    trade_start = result["date"].iloc[0]  # 贸易块日期域下界（裁 ISM 全史用）
+    trade_dates = (
+        result.loc[result["exports"].notna(), "date"]
+        if "exports" in result.columns else pd.Series(dtype=str)
+    )
+    trade_start = trade_dates.min() if not trade_dates.empty else None
 
     # ISM 失败仅丢该列，不影响贸易块。ISM 日期恒为发布日（含 1 日）→ 数据月
     # 永远是上月（_norm_ism_date）；若误用 day==1 保留规则会把「8月1日发布」
@@ -1076,6 +1227,7 @@ def fetch_external_demand(conn):
         "2025-09-01": 49.1, "2025-10-01": 48.7, "2025-11-01": 48.2, "2025-12-01": 47.9,
         "2026-01-01": 52.6, "2026-02-01": 52.4, "2026-03-01": 52.7, "2026-04-01": 52.7,
         "2026-05-01": 54.0, "2026-06-01": 53.3, "2026-07-01": 55.6, "2026-08-01": 54.6,
+        "2026-09-01": 54.5,
     }
     have = set(result["date"])
     for d, v in _ISM_SUPPLEMENT.items():
@@ -1088,8 +1240,124 @@ def fetch_external_demand(conn):
     result = result.sort_values("date").reset_index(drop=True)
     # ISM 外连接带入 1970 起全史（~540 行冗余）→ 裁到贸易日期域，
     # ISM 保留与贸易重叠段（2015+），外需页语境足够
-    result = result[result["date"] >= trade_start].reset_index(drop=True)
+    if trade_start:
+        result = result[result["date"] >= trade_start].reset_index(drop=True)
     save_to_db(result, "external_demand", conn)
+    return result
+
+
+# ─────────────────────────────────────────────
+# 17. 实体需求（社零 / 固投 / 城镇调查失业率）
+# ─────────────────────────────────────────────
+def fetch_domestic_demand(conn):
+    """Consumption, fixed-asset investment and the employment backdrop.
+
+    Retail sales come from Eastmoney's NBS mirror.  Fixed-asset investment uses
+    Eastmoney's ``RPT_ECONOMY_ASSET_INVEST`` report (monthly current / YTD /
+    year-on-year).  The NBS unemployment endpoint is WAF-sensitive, so published
+    official rates for the latest three months are retained as an explicit
+    supplement instead of dropping the whole table.
+    """
+    log("采集: 实体需求（社零 / 固定资产投资 / 失业率） ...")
+    retail = ak.macro_china_consumer_goods_retail()
+    retail_m = pd.DataFrame({
+        "date": [DATE_PARSERS["cn_month"](value) for value in retail["月份"]],
+        "retail_current": to_num(retail["当月"]),
+        "retail_yoy": to_num(retail["同比增长"]),
+        "retail_mom": to_num(retail["环比增长"]),
+        "retail_cum": to_num(retail["累计"]),
+        "retail_cum_yoy": to_num(retail["累计-同比增长"]),
+    }).dropna(subset=["date"])
+
+    fai = _fetch_eastmoney("RPT_ECONOMY_ASSET_INVEST", {
+        "REPORT_DATE": "date",
+        "BASE": "fai_current",
+        "BASE_SAME": "fai_yoy",
+        "BASE_ACCUMULATE": "fai_cum",
+    })
+    if not fai.empty:
+        fai["date"] = pd.to_datetime(
+            fai["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+        for col in ("fai_current", "fai_yoy", "fai_cum"):
+            fai[col] = to_num(fai[col])
+        fai = fai.dropna(subset=["date"])
+
+    unemployment = pd.DataFrame()
+    try:
+        raw = ak.macro_china_urban_unemployment()
+        if not raw.empty:
+            raw["date"] = pd.to_datetime(
+                raw["date"].astype(str), format="%Y%m", errors="coerce"
+            ).dt.strftime("%Y-%m-01")
+            item_map = {
+                "全国城镇调查失业率": "unemployment_rate",
+                "31个大城市城镇调查失业率": "unemployment_31_city",
+                "本地户籍人口城镇调查失业率": "unemployment_local",
+                "外来农业户籍人口城镇调查失业率": "unemployment_migrant",
+            }
+            raw["item"] = raw["item"].map(item_map)
+            unemployment = (
+                raw.dropna(subset=["date", "item"])
+                .pivot_table(index="date", columns="item", values="value", aggfunc="last")
+                .reset_index()
+            )
+    except Exception as e:
+        log(f"  ⚠️ NBS 城镇调查失业率采集失败，使用官方发布补充值: {e}")
+
+    _UNEMPLOYMENT_SUPPLEMENT = pd.DataFrame([
+        {"date": "2026-07-01", "unemployment_rate": 5.2,
+         "unemployment_31_city": 5.2},
+        {"date": "2026-08-01", "unemployment_rate": 5.3,
+         "unemployment_31_city": 5.3},
+        {"date": "2026-09-01", "unemployment_rate": 5.2,
+         "unemployment_31_city": 5.2},
+    ])
+    if unemployment.empty:
+        unemployment = _UNEMPLOYMENT_SUPPLEMENT
+    else:
+        unemployment = unemployment.merge(
+            _UNEMPLOYMENT_SUPPLEMENT, on="date", how="outer", suffixes=("", "_official"))
+        for col in ("unemployment_rate", "unemployment_31_city"):
+            alt = f"{col}_official"
+            if alt in unemployment.columns:
+                unemployment[col] = unemployment[col].combine_first(
+                    unemployment[alt])
+                unemployment = unemployment.drop(columns=[alt])
+
+    result = retail_m
+    for frame in (fai, unemployment):
+        if not frame.empty:
+            result = result.merge(frame, on="date", how="outer")
+    result = result.sort_values("date").reset_index(drop=True)
+    save_to_db(result, "domestic_demand", conn)
+    return result
+
+
+# ─────────────────────────────────────────────
+# 18. 制造业 PMI 分项（NBS 发布页，13 个滚动月）
+# ─────────────────────────────────────────────
+def fetch_pmi_detail(conn):
+    log("采集: 制造业 PMI 分项（NBS 发布页） ...")
+    try:
+        result = _fetch_nbs_pmi_details()
+    except Exception as e:
+        log(f"  ⚠️ NBS PMI 分项采集失败: {e}")
+        result = pd.DataFrame()
+    save_to_db(result, "pmi_detail", conn)
+    return result
+
+
+# ─────────────────────────────────────────────
+# 19. 房地产开发与销售活动（NBS 月度发布页）
+# ─────────────────────────────────────────────
+def fetch_real_estate_activity(conn):
+    log("采集: 房地产开发与销售活动（NBS 发布页） ...")
+    try:
+        result = _fetch_nbs_real_estate_activity(limit=15)
+    except Exception as e:
+        log(f"  ⚠️ NBS 房地产活动数据采集失败: {e}")
+        result = pd.DataFrame()
+    save_to_db(result, "real_estate_activity", conn)
     return result
 
 
@@ -1142,11 +1410,14 @@ def main():
         fetch_cpi,
         fetch_ppi,
         fetch_pmi,
+        fetch_pmi_detail,
         fetch_leverage,
         fetch_social_finance,
         fetch_lpr,
         fetch_industrial,
+        fetch_domestic_demand,
         fetch_house_price,
+        fetch_real_estate_activity,
         fetch_household_income,
         fetch_new_credit,
         fetch_bond_yield,

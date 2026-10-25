@@ -52,13 +52,15 @@ def test_signals_response_matches_schema(client):
     body = resp.json()
 
     model = SignalSummary.model_validate(body)   # raises on any contract breach
-    assert -4 <= model.composite_score <= 4
+    assert model.macro_score is not None
+    assert model.macro_score.score is None or 0 <= model.macro_score.score <= 100
     assert set(body) >= {"merrill", "credit", "inventory", "debt", "cross_lags",
-                         "as_of", "included", "excluded", "stale", "composite_raw"}
+                         "macro_score", "as_of", "included", "excluded", "stale"}
+    assert not {"composite_score", "composite_raw", "interpretation"} & set(body)
     # the fixture has all four frameworks populated → a real, non-null frontier
     assert body["as_of"] and _ISO_DATE.fullmatch(body["as_of"])
     for fw in ("merrill", "credit", "inventory", "debt"):
-        assert "phase" in body[fw] and "score" in body[fw]
+        assert "phase" in body[fw] and "score" not in body[fw]
 
 
 # ── /api/v1/derived/monthly → DerivedFrame ───────────────────────────────────

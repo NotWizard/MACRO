@@ -750,10 +750,12 @@ A: 部分接口需要积分，详见：https://tushare.pro/document/1?doc_id=108
 
 ## 十一、已知数据源问题
 
-### NBS 国家统计局（data.stats.gov.cn）— 2026-03 改版失效 → 2026-08 已恢复
+### NBS 国家统计局（data.stats.gov.cn）— 2026-03 改版 → 2026-08 恢复 → 2026-10 WAF 波动
 
-**状态**：✅ 已恢复（2026-08-09 实测）。旧 API 仍被 WAF 封禁，但 akshare 1.18.x 已将
-`macro_china_nbs_nation()` 切换到新站 API，可正常取数。
+**状态**：⚠️ 数据查询 API 间歇性返回 302 `/waf_text_verify.html`（2026-10-25 实测），
+`macro_china_nbs_nation()` 与 `macro_china_urban_unemployment()` 均可能得到 HTML 而非 JSON。
+`www.stats.gov.cn` 的静态发布页仍可稳定访问，因此 `pmi_detail` 与
+`real_estate_activity` 改为从发布归档页解析；财政与外需保留 NBS 主源，并加入东财/财政部兜底。
 
 **时间线**：
 - 2026-03-25：NBS 发布[新版数据发布库上线公告](https://www.stats.gov.cn/xw/tjxw/tzgg/202603/t20260325_1962844.html)
@@ -769,6 +771,10 @@ A: 部分接口需要积分，详见：https://tushare.pro/document/1?doc_id=108
   路径（财政收入/支出、`对外经济 > 货物进出口总额`、`人民生活 > 全国居民人均收入情况`、
   `人口 > 总人口`）**5/5 可取数**。教训：爬虫库的"精确锁定"会把已失效的上游接口一同冻死，
   上游改版后需**主动升级 + 回归**，不能只靠锁定。
+- 2026-10-25：`data.stats.gov.cn` 查询接口再次命中 CWAP WAF，302 到
+  `/waf_text_verify.html`；而 `www.stats.gov.cn/sj/zxfb/` 发布归档和正文 HTML 正常。
+  新增 `scripts/nbs_release.py`，只从官方发布页读取 PMI 分项和房地产活动表，不绕验证码、
+  不保存网页推断值。
 
 **目录重构后的路径变化（重点）**：
 - 旧路径 `人民生活 > 居民人均可支配收入` 失效——原二级指标节点已不存在
@@ -783,6 +789,17 @@ A: 部分接口需要积分，详见：https://tushare.pro/document/1?doc_id=108
 **替代方案**（失效期间建立，demographics 沿用至今）：
 - `demographics` → World Bank API（`SP.POP.TOTL` / `SP.URB.TOTL.IN.ZS` / `SP.DYN.CBRT.IN` / `SP.DYN.CDRT.IN`），覆盖 1960-2025
 - ⚠️ `api.worldbank.org` 首个请求响应很慢（timeout 15s 必然超时），生产已将超时 15s → 60s
+
+**2026-10 WAF 波动下的生产主备关系**：
+
+| 数据 | 主路径 | 当前兜底 |
+|---|---|---|
+| 财政收支 | NBS 月度（原路径） | 东财 `RPT_ECONOMY_INCOME` + 财政部前三季度发布值 `2026-09` |
+| 货物进出口 | NBS 月度（原路径） | AKShare `macro_china_hgjck()` / 东财海关接口 |
+| PMI 分项 | NBS PMI 发布页 | 无；页面解析失败时保留上一份通过闸门的数据 |
+| 房地产活动 | NBS 房地产月度发布页 | 无；逐月归档页共取最近 15 期 |
+| 社零 / 固投 | 东财 `RPT_ECONOMY_TOTAL_RETAIL` / `RPT_ECONOMY_ASSET_INVEST` | 无 |
+| 城镇调查失业率 | NBS 月度 API | 官方发布会已公布的最近三期显式补充值 |
 
 **新 API 参数备忘**（akshare 内部已使用，备查）：
 - Base URL：`https://data.stats.gov.cn/dg/website/publicrelease/web/external`

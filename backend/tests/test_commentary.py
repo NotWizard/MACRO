@@ -4,6 +4,7 @@ Run:  .venv312/bin/python -m pytest backend/tests -q
 """
 
 import json
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -63,6 +64,19 @@ def _ok_json() -> str:
                        "overall": "总体研判文本"}, ensure_ascii=False)
 
 
+def _report_md(messages=None) -> str:
+    headings = (
+        re.findall(r"^## (.+)$", messages[-1]["content"], re.M)
+        if messages else list(commentary.REPORT_HEADINGS[:4])
+    )
+    sentence = "本节依据快照事实展开分析，说明方向、幅度与交叉验证关系，并列出反面证据。"
+    return "\n\n".join(f"## {heading}\n{sentence * 3}" for heading in headings)
+
+
+def _is_report_prompt(messages) -> bool:
+    return "完整报告写作 Skill" in messages[-1]["content"]
+
+
 def _stub_chat(monkeypatch, fn):
     monkeypatch.setattr(commentary.ai_client, "call_chat", fn)
 
@@ -99,9 +113,9 @@ def test_validate_structured():
     parts, problems = commentary._validate_structured("纯散文输出")
     assert problems and not parts
 
-    bad = {"sections": {k: "" for k in SECTIONS}, "overall": "字" * 601}
+    bad = {"sections": {k: "" for k in SECTIONS}, "overall": "字" * 901}
     parts, problems = commentary._validate_structured(json.dumps(bad, ensure_ascii=False))
-    assert len(problems) == 7 and not parts                            # 6 空串 + 超长 overall
+    assert len(problems) == 6 and parts["overall"].endswith("…")       # overall 自动压缩
 
     miss = {"sections": {k: "ok" for k in SECTIONS[:-1]}, "overall": "ov"}
     parts, problems = commentary._validate_structured(json.dumps(miss, ensure_ascii=False))
@@ -113,16 +127,26 @@ def test_validate_structured():
     assert problems and "overall" in parts
 
 
+def test_compact_overall_keeps_five_lines_and_bound():
+    text = "\n".join(f"**要点{i}** " + "字" * 260 for i in range(7))
+    compact = commentary._compact_overall(text)
+    assert len(compact) <= 900
+    assert compact.count("\n") <= 4
+    assert compact.endswith("…")
+
+
 # ── 3. happy path ────────────────────────────────────────────────────────────
 
 def test_generate_happy_path(monkeypatch):
     _profile()
     calls = []
-    _stub_chat(monkeypatch, lambda p, k, m, *a, **kw: calls.append(m) or _ok_json())
+    _stub_chat(monkeypatch, lambda p, k, m, *a, **kw:
+               calls.append(m) or (_report_md(m) if _is_report_prompt(m) else _ok_json()))
 
     r = commentary.generate(blocking=True)
-    assert r["status"] == "ok" and len(calls) == 1
+    assert r["status"] == "ok" and len(calls) == 4
     assert set(r["sections"]) == set(SECTIONS) and r["overall"] == "总体研判文本"
+    assert r["report_status"] == "ready" and "中国宏观分析报告" in r["report"]
     assert r["stale"] is False
     prov = r["provenance"]
     assert set(prov) == {"model", "endpoint", "template_hash", "data_as_of",
@@ -134,13 +158,22 @@ def test_generate_happy_path(monkeypatch):
     assert prov["endpoint"] == "chat_completions"
 
     rows = _rows()
-    assert len(rows) == 7                                              # 6 板块 + overall
+    assert len(rows) == 8                                              # 6 板块 + overall + report
     assert len({row["ts"] for row in rows}) == 1                       # 同 ts = 批次键
     assert prov["generated_at"] == rows[0]["ts"]
-    assert {row["section"] for row in rows} == set(ALL_KEYS)
+    assert {row["section"] for row in rows} == set(ALL_KEYS) | {"report"}
     assert all(row["stale"] == 0 for row in rows)
     snap = json.loads(rows[0]["phase_snapshot"])                       # 模型原始输入
-    assert set(snap) == {"data_as_of", "sections"}
+    assert set(snap) == {"data_as_of", "macro_score", "sections"}
+
+
+def test_fit_report_part_preserves_headings_and_bounds_length():
+    headings = commentary.REPORT_PARTS[0][1]
+    text = "\n\n".join(f"## {h}\n{'分析。' * 120}" for h in headings)
+    fitted = commentary._fit_report_part(text, headings)
+    assert all(f"## {h}" in fitted for h in headings)
+    assert len(fitted) < 900
+    assert "。…" not in fitted
 
 
 # ── 4. 重试一次 ──────────────────────────────────────────────────────────────
@@ -151,6 +184,8 @@ def test_retry_once_with_error_feedback(monkeypatch):
     outs = iter(["这是散文不是 JSON", _ok_json()])
 
     def stub(p, k, m, *a, **kw):
+        if _is_report_prompt(m):
+            return _report_md(m)
         seen.append(m)
         return next(outs)
 
@@ -168,13 +203,15 @@ def test_fallback_per_section(monkeypatch):
     n = []
 
     def stub(p, k, m, *a, **kw):
+        if _is_report_prompt(m):
+            return _report_md(m)
         n.append(1)
         return "乱码" if len(n) <= 2 else "补调文本"   # 结构化两次全乱 → 7 次补调
 
     _stub_chat(monkeypatch, stub)
     r = commentary.generate(blocking=True)
     assert r["status"] == "ok"
-    assert len(n) == 2 + 7                                             # 最坏 9 次调用
+    assert len(n) == 2 + 7                                             # 最坏 9 次摘要调用
     assert set(r["sections"]) == set(SECTIONS) and r["overall"] == "补调文本"
     assert all(v == "补调文本" for v in r["sections"].values())
 
@@ -199,6 +236,8 @@ def test_fallback_unwraps_json_wrapped_text(monkeypatch):
     n = []
 
     def stub(p, k, m, *a, **kw):
+        if _is_report_prompt(m):
+            return _report_md(m)
         n.append(1)
         return "乱码" if len(n) <= 2 else wrapped
 
@@ -232,13 +271,32 @@ def test_total_failure_keeps_last_good(monkeypatch):
     r1 = commentary.generate(blocking=True)
     assert r1["status"] == "ok"
 
-    _stub_chat(monkeypatch, lambda *a, **kw: "乱" * 601)               # 超 600 字 → 补调也不合格
+    _stub_chat(monkeypatch, lambda *a, **kw: "乱" * 901)               # 超上限 → 补调也不合格
     r2 = commentary.generate(blocking=True)
     assert r2["status"] == "error" and "上一版" in r2["msg"]
 
     cur = commentary.get_current()                                     # GET 仍回旧批次
     assert cur["status"] == "ok" and cur["overall"] == r1["overall"]
     assert len(_rows()) == 7                                           # 行数不增
+
+
+def test_report_failure_keeps_new_compact_batch(monkeypatch):
+    """The slow report is optional: its failure must not throw away a new summary."""
+    _profile()
+
+    def stub(p, k, m, *a, **kw):
+        if _is_report_prompt(m):
+            raise commentary.ai_client.AiError("request", None, "report timeout")
+        return _ok_json()
+
+    _stub_chat(monkeypatch, stub)
+    r = commentary.generate(blocking=True)
+    assert r["status"] == "ok"
+    assert r["overall"] == "总体研判文本"
+    assert r["report_status"] == "missing"
+    assert "全文报告生成失败" in (r["report_msg"] or "")
+    assert len(_rows()) == 7
+    assert commentary.get_current()["overall"] == "总体研判文本"
 
 
 # ── 7. 无 profile / 无 key ───────────────────────────────────────────────────
@@ -320,7 +378,8 @@ def test_endpoint_shapes(monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert set(body) == {"status", "msg", "hint", "stale", "regenerating",
-                         "overall", "sections", "provenance"}
+                         "overall", "sections", "report", "report_status",
+                         "report_msg", "provenance"}
     assert body["status"] == "empty" and body["hint"] == "/ai-settings"
 
     # generating 由 _gen_lock 派生（F10：不再存在可卡死的独立 _busy 旗标）
@@ -384,6 +443,8 @@ def _three_batches(monkeypatch):
     n = []
 
     def stub(p, k, m, *a, **kw):
+        if _is_report_prompt(m):
+            return _report_md(m)
         n.append(1)
         ov = "综" * 100 if len(n) == 2 else "总体研判文本"
         return json.dumps({"sections": {s: f"{s} 评论文本" for s in SECTIONS},
@@ -406,7 +467,7 @@ def test_history_index_descending_and_shape(monkeypatch):
     assert ts_list == sorted(ts_list, reverse=True)              # ts 严格倒序
     for it in items:
         assert set(it) == {"generated_at", "model", "profile", "template_hash",
-                           "status", "stale", "overall_preview"}
+                           "status", "stale", "overall_preview", "report_available"}
         assert it["status"] == "ok" and it["stale"] is False
         assert it["model"] == "m1" and it["profile"] == "p1"
         assert len(it["template_hash"]) == 64
@@ -420,6 +481,8 @@ def test_same_second_batches_do_not_merge(monkeypatch):
     tags = []
 
     def stub(p, k, m, *a, **kw):
+        if _is_report_prompt(m):
+            return _report_md(m)
         tags.append(f"批{len(tags) + 1}")
         return json.dumps({"sections": {s: f"{tags[-1]} {s}" for s in SECTIONS},
                            "overall": f"{tags[-1]} 总体"}, ensure_ascii=False)
@@ -435,7 +498,7 @@ def test_same_second_batches_do_not_merge(monkeypatch):
     n = conn.execute("SELECT COUNT(*) FROM commentary").fetchone()[0]
     n_ts = conn.execute("SELECT COUNT(DISTINCT ts) FROM commentary").fetchone()[0]
     conn.close()
-    assert n == 14 and n_ts == 2                                # 并批 → 1 ts，后写覆盖前写
+    assert n == 16 and n_ts == 2                                # 摘要+全文，各批 8 行
 
     items = commentary.history_index()
     assert [it["generated_at"] for it in items] == ["2026-03-01T12:00:00.002",
@@ -463,7 +526,7 @@ def test_history_batch_detail_and_404(monkeypatch):
 def test_snapshot_shape_real_db(monkeypatch):
     monkeypatch.setattr(commentary, "DB_PATH", REAL_DB)
     snap = commentary.build_section_snapshot()
-    assert set(snap) == {"data_as_of", "sections"}
+    assert set(snap) == {"data_as_of", "macro_score", "sections"}
     assert set(snap["sections"]) == set(SECTIONS)
     assert set(snap["data_as_of"]) == set(commentary._AS_OF_TABLES)
 

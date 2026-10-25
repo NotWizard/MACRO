@@ -35,8 +35,25 @@ def read_history(limit=60, db_path=DB_PATH):
     就抛 `database is locked` 而不是等待。"""
     conn = connect(db_path)
     try:
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({TABLE})")}
+        if not have:
+            return []
+        required = {
+            "ts", "data_as_of", "macro_score", "macro_label", "macro_pressure",
+            "macro_confidence", "score_version", "merrill", "credit", "inventory", "debt",
+        }
+        # The old [-4,+4] table has no versioned score. Do not mix incompatible
+        # scales: if the schema is old, show an empty history until the next
+        # successful refresh recreates it.
+        if not required.issubset(have):
+            if "composite" in have and "macro_score" not in have:
+                return []
+            missing = sorted(required - have)
+            raise sqlite3.OperationalError(
+                f"no such column: {', '.join(missing)}")
         cur = conn.execute(
-            f"SELECT ts, data_as_of, composite, merrill, credit, inventory, debt "
+            f"SELECT ts, data_as_of, macro_score, macro_label, macro_pressure, "
+            f"macro_confidence, score_version, merrill, credit, inventory, debt "
             f"FROM {TABLE} ORDER BY rowid DESC LIMIT ?", (limit + 1,))
         cols = [c[0] for c in cur.description]
         rows = [dict(zip(cols, r)) for r in cur.fetchall()]

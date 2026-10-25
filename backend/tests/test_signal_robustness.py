@@ -180,7 +180,7 @@ def test_inventory_marks_rows_it_cannot_classify(tmp_path):
     assert out["phase_color"].notna().all()       # colour map must cover it
 
 
-# ── 2. A-H1/A-H2: composite renormalises over AVAILABLE sub-signals ──────────
+# ── 2. A-H1/A-H2: unavailable phases are excluded; macro score is versioned ──
 def _three_of_four_db(tmp_path):
     """merrill/credit/inventory all clearly +1; leverage table EMPTY ⇒ no debt."""
     dates = _months("2025-01-01", 18)                      # …through 2026-06
@@ -197,14 +197,8 @@ def _three_of_four_db(tmp_path):
     )
 
 
-def test_missing_sub_signal_is_excluded_and_composite_renormalised(tmp_path):
-    """A sub-signal with no data is EXCLUDED and the composite is renormalised
-    over what is left — it is not silently summed as a neutral 0.
-
-    Pre-fix: ``merrill_df.iloc[-1]`` on the empty debt frame raised IndexError;
-    had it survived, ``DEBT_SCORES.get(phase, 0)`` would have counted the missing
-    framework as "neutral", diluting a unanimous +1 read to 3/4.
-    """
+def test_missing_phase_is_excluded_and_macro_score_is_versioned(tmp_path):
+    """A missing phase is excluded without creating a fake legacy score."""
     sig = compute_signals(_three_of_four_db(tmp_path))
 
     assert sig["merrill"]["phase"] == "recovery"
@@ -217,10 +211,11 @@ def test_missing_sub_signal_is_excluded_and_composite_renormalised(tmp_path):
     assert sig["excluded"] == ["debt"]
     assert sig["included"] == ["merrill", "credit", "inventory"]
 
-    # 3 available sub-signals, all +1 ⇒ full-scale +4, NOT the diluted sum of 3.
-    assert sig["composite_raw"] == pytest.approx(4.0)
-    assert sig["composite_score"] == 4
-    assert isinstance(sig["composite_score"], int)
+    assert "score" not in sig["merrill"]
+    assert "composite_score" not in sig
+    assert sig["macro_score"]["version"] == "macro-expansion-v1"
+    assert sig["macro_score"]["score"] is not None
+    assert 0 <= sig["macro_score"]["score"] <= 100
 
 
 def test_every_sub_signal_exposes_its_own_as_of(tmp_path):
@@ -274,11 +269,10 @@ def test_empty_db_yields_insufficient_data_everywhere(tmp_path):
     for name in ("merrill", "credit", "inventory", "debt"):
         assert sig[name]["phase"] == INSUFFICIENT
         assert sig[name]["included"] is False
-        assert sig[name]["score"] == 0
     assert sig["excluded"] == ["merrill", "credit", "inventory", "debt"]
-    assert sig["composite_score"] == 0
-    assert sig["composite_raw"] == 0.0
-    assert sig["interpretation"]                      # still a usable summary
+    assert sig["macro_score"]["score"] is None
+    assert sig["macro_score"]["coverage"] == 0
+    assert sig["macro_score"]["label"] == "数据不足"
 
 
 def test_signals_endpoint_does_not_500_on_empty_db(tmp_path, monkeypatch):
@@ -294,7 +288,7 @@ def test_signals_endpoint_does_not_500_on_empty_db(tmp_path, monkeypatch):
     resp = client.get("/api/v1/signals")
     assert resp.status_code == 200, "endpoint 500s on an empty DB (pre-fix failure)"
     body = resp.json()
-    assert body["composite_score"] == 0
+    assert body["macro_score"]["score"] is None
     # response_model keeps the sub-dicts opaque, so the flags survive the wire
     assert body["merrill"]["phase"] == INSUFFICIENT
     assert body["merrill"]["included"] is False

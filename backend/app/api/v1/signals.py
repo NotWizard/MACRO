@@ -12,7 +12,7 @@ router = APIRouter(prefix="/signals", tags=["signals"])
 
 @router.get("", response_model=SignalSummary)
 def signals():
-    """Composite [-4,+4] signal + per-framework latest phase."""
+    """Versioned 0–100 macro score plus descriptive cycle phases."""
     return compute_signals(str(db.DB_PATH))
 
 

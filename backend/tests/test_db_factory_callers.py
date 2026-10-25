@@ -61,12 +61,15 @@ def test_read_history_still_reads_rows(tmp_path):
     db_file = tmp_path / "hist.db"
     conn = sqlite3.connect(db_file)
     conn.execute(f"""CREATE TABLE {signal_history.TABLE} (
-        ts TEXT, data_as_of TEXT, composite INTEGER,
-        merrill TEXT, credit TEXT, inventory TEXT, debt TEXT)""")
+        ts TEXT, data_as_of TEXT, merrill TEXT, credit TEXT, inventory TEXT, debt TEXT,
+        macro_score REAL, macro_label TEXT, macro_pressure REAL,
+        macro_confidence REAL, score_version TEXT)""")
     conn.executemany(
-        f"INSERT INTO {signal_history.TABLE} VALUES (?,?,?,?,?,?,?)",
-        [("t1", "2026-01", 1, "recovery", "easing", "active_restocking", "stable_growth"),
-         ("t2", "2026-02", 0, "overheating", "easing", "active_restocking", "stable_growth")],
+        f"INSERT INTO {signal_history.TABLE} VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        [("t1", "2026-01", "recovery", "easing", "active_restocking", "stable_growth",
+          48.0, "弱复苏 · 结构分化", 55.0, 80.0, "macro-expansion-v1"),
+         ("t2", "2026-02", "overheating", "easing", "active_restocking", "stable_growth",
+          54.0, "温和扩张", 58.0, 82.0, "macro-expansion-v1")],
     )
     conn.commit()
     conn.close()

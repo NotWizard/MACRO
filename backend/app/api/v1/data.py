@@ -13,6 +13,7 @@ from backend.app.schemas.cycles import DerivedFrame
 _ALLOWED_TABLES = {
     "derived_monthly", "derived_quarterly",
     "money_supply", "gdp", "cpi", "ppi", "pmi",
+    "pmi_detail", "domestic_demand", "real_estate_activity",
     "leverage", "social_finance", "lpr", "industrial",
     "house_price", "household_income", "new_credit", "bond_yield",
     "demographics", "fiscal", "external_demand",

@@ -56,10 +56,11 @@ async function remove(name: string) {
 }
 
 // ── 模板编辑器（M4c；主-从布局）─────────────────────────────────────────────
-const TPL_ORDER = ['system', 'merrill', 'credit', 'inventory', 'debt', 'real_estate', 'fiscal_external', 'overall']
+const TPL_ORDER = ['system', 'merrill', 'credit', 'inventory', 'debt', 'real_estate', 'fiscal_external', 'overall', 'report']
 const TPL_LABELS: Record<string, string> = {
   system: '系统提示', merrill: '美林时钟', credit: '信用周期', inventory: '库存周期',
-  debt: '债务周期', real_estate: '房地产', fiscal_external: '财政与外需', overall: '总体研判',
+  debt: '债务周期', real_estate: '房地产', fiscal_external: '财政与外需',
+  overall: '首页总评', report: '宏观深度报告',
 }
 const tplDefaults = ref<Record<string, string>>({})
 const tplDraft = ref<Record<string, string>>({})
@@ -96,6 +97,10 @@ async function saveTpl() {
     tplMsgOk.value = true
   } catch (e) { tplMsg.value = (e as Error).message; tplMsgOk.value = false }
   finally { tplSaving.value = false }
+}
+function loadTplDefault() {
+  const value = tplDefaults.value[tplSel.value]
+  if (value) tplDraft.value[tplSel.value] = value
 }
 
 // ── 生成历史（M4c）──────────────────────────────────────────────────────────
@@ -273,10 +278,11 @@ async function submit() {
             <span v-if="tplDraft[tplSel]?.trim()" class="text-[10px] text-accent border border-border rounded px-1.5 py-0.5">已覆盖</span>
             <span v-else class="text-[10px] text-text-4">使用默认</span>
             <span class="flex-1"></span>
+            <button v-if="!tplDraft[tplSel]?.trim() && tplDefaults[tplSel]" :class="btnCls" @click="loadTplDefault">载入默认</button>
             <button :class="btnCls" :disabled="!tplDraft[tplSel]" @click="tplDraft[tplSel] = ''">重置默认</button>
           </div>
           <textarea
-            :id="'tpl-' + tplSel" v-model="tplDraft[tplSel]" rows="10"
+            :id="'tpl-' + tplSel" v-model="tplDraft[tplSel]" :rows="tplSel === 'report' ? 18 : 10"
             :placeholder="tplDefaults[tplSel]"
             class="flex-1 w-full bg-surface border border-border rounded-lg px-3 py-2.5 text-sm text-text leading-relaxed placeholder:text-text-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent resize-y font-mono"
           ></textarea>
@@ -306,7 +312,7 @@ async function submit() {
         @toggle="toggleBatch(b, $event)"
       >
         <summary class="cursor-pointer text-sm text-text-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
-          <span class="tnum">{{ b.generated_at }}</span><template v-if="b.model"> · {{ b.model }}</template><template v-if="b.profile"> · {{ b.profile }}</template><template v-if="b.template_hash"> · tpl {{ b.template_hash.slice(0, 8) }}</template> · {{ b.status }}
+          <span class="tnum">{{ b.generated_at }}</span><template v-if="b.model"> · {{ b.model }}</template><template v-if="b.profile"> · {{ b.profile }}</template><template v-if="b.template_hash"> · tpl {{ b.template_hash.slice(0, 8) }}</template> · {{ b.status }}<template v-if="b.report_available"> · 全文</template>
           <span v-if="b.stale" class="text-xs px-1.5 py-0.5 rounded bg-warn-soft text-warn">已过期</span>
         </summary>
         <div v-if="batchLoading[b.generated_at]" class="text-xs text-text-3 mt-2">加载中…</div>

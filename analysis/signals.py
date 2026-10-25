@@ -1,33 +1,12 @@
-"""
-Composite Signal System — aggregate four cycle classifiers into a single score.
+"""Latest cycle states plus the versioned 0–100 macro expansion score.
 
-Frameworks scored:
-    Merrill Lynch:  recovery(+1) overheating(0) stagflation(−1) recession(−1)
-    Credit:         easing(+1) neutral(0) tightening(−1)
-    Inventory:      active_restocking(+1) passive_destocking(0)
-                    passive_restocking(0) active_destocking(−1)
-    Debt:           beautiful_deleveraging(+1) leveraging_boom(+1) stable_growth(+1)
-                    ugly_deleveraging(−1) leveraging_bust(−1) stable_contraction(−1)
-
-Composite: weighted mean of the AVAILABLE sub-signals, rescaled to [−4, +4] so the
-bands below keep their meaning whatever the coverage. With all four present and
-fresh (every weight 1.0) it is exactly the old sum of four scores.
-    • a framework with no data (phase ``insufficient_data``, or any phase outside
-      its score map) is EXCLUDED — never summed as a neutral 0;
-    • a framework whose newest input is older than its publication cadence allows
-      keeps HALF weight and is flagged, because the four frameworks are published
-      on different calendars and are NOT the same as-of date.
-
-Interpretation bands:
-    +3 to +4 : strongly bullish
-    +1 to +2 : mildly bullish
-         0   : neutral
-    −1 to −2 : mildly bearish
-    −3 to −4 : strongly bearish
+The old [-4,+4] "sum four phases" score was intentionally removed. The four
+cycle classifiers remain descriptive building blocks; the headline score lives
+in :mod:`analysis.macro_score` and carries magnitude, pressure, confidence and
+an explicit methodology version.
 """
 
 import functools
-import math
 import os
 import sys
 from pathlib import Path
@@ -43,49 +22,27 @@ from analysis.cycle_credit import classify_credit
 from analysis.cycle_inventory import classify_inventory
 from analysis.cycle_debt import classify_debt
 from analysis.cross_indicator import leading_lag_analysis
-
-# ── Per-framework scoring maps ───────────────────────────────────────────────
-MERRILL_SCORES = {
-    "recovery": +1,
-    "overheating": 0,
-    "stagflation": -1,
-    "recession": -1,
-}
-
-CREDIT_SCORES = {
-    "easing": +1,
-    "neutral": 0,
-    "tightening": -1,
-}
-
-INVENTORY_SCORES = {
-    "active_restocking": +1,
-    "passive_restocking": 0,
-    "passive_destocking": 0,
-    "active_destocking": -1,
-}
-
-DEBT_SCORES = {
-    "beautiful_deleveraging": +1,
-    "leveraging_boom": +1,
-    "stable_growth": +1,
-    "ugly_deleveraging": -1,
-    "leveraging_bust": -1,
-    "stable_contraction": -1,
-}
+from analysis.macro_score import compute_macro_score
 
 FRAMEWORKS = ("merrill", "credit", "inventory", "debt")
 
-_SCORE_MAPS = {
-    "merrill": MERRILL_SCORES,
-    "credit": CREDIT_SCORES,
-    "inventory": INVENTORY_SCORES,
-    "debt": DEBT_SCORES,
+_VALID_PHASES = {
+    "merrill": {"recovery", "overheating", "stagflation", "recession"},
+    "credit": {"easing", "neutral", "tightening"},
+    "inventory": {
+        "active_restocking", "passive_restocking",
+        "passive_destocking", "active_destocking",
+    },
+    "debt": {
+        "beautiful_deleveraging", "ugly_deleveraging",
+        "leveraging_boom", "leveraging_bust",
+        "stable_growth", "stable_contraction",
+    },
 }
 
 # How many months a framework may legitimately lag the newest observation across
 # all frameworks (its own publication cadence + one release lag) before its phase
-# is describing a period the composite does not: annual GDP is up to a year plus a
+# is describing a period the macro score does not: annual GDP is up to a year plus a
 # quarter behind, quarterly leverage a quarter plus a quarter, monthly series at
 # most a couple of months. Beyond this the sub-signal is flagged and down-weighted
 # rather than summed as if it were current.
@@ -99,20 +56,6 @@ _INPUT_STALENESS_KEY = {"inventory": "pmi_stale_months"}
 # cycles are persistent), it just must not outvote current data. One flat factor
 # is auditable and adds no knob that we have no data to fit.
 _STALE_WEIGHT = 0.5
-
-
-def _interpret(score: int) -> str:
-    """Map composite score to interpretation text."""
-    if score >= 3:
-        return "Strongly bullish — most cycles aligned in expansion"
-    elif score >= 1:
-        return "Mildly bullish — growth signals outweigh headwinds"
-    elif score == 0:
-        return "Neutral — conflicting signals across frameworks"
-    elif score >= -2:
-        return "Mildly bearish — headwinds building across multiple cycles"
-    else:
-        return "Strongly bearish — most cycles aligned in contraction"
 
 
 def _db_version(db_path: str) -> tuple:
@@ -177,24 +120,21 @@ def _sub_signal(
     numeric_cols: tuple = (),
     phase_cols: tuple = (),
 ) -> Dict:
-    """Latest row of one classifier as a scored, self-describing sub-signal.
+    """Latest row of one classifier as a self-describing sub-signal.
 
     An empty frame yields ``phase="insufficient_data"``, ``included=False`` and
     weight 0 — this is the guard for the crash that used to take ``/api/v1/signals``
-    down with ``IndexError`` on a fresh/empty DB. Any phase that is not in the
-    framework's score map is treated the same way, so an unrecognised phase can
-    never be scored as if it were neutral.
+    down with ``IndexError`` on a fresh/empty DB. Unknown phases are excluded.
     """
     row = df.iloc[-1] if df is not None and len(df) else None
     phase = str(row[phase_col]) if row is not None else INSUFFICIENT_DATA
-    included = phase in _SCORE_MAPS[name]
+    included = phase in _VALID_PHASES[name]
     date = row["date"] if row is not None and pd.notna(row["date"]) else None
 
     out = {
         "date": _fmt(date, date_fmt),
         "as_of": _fmt(date, "%Y-%m-%d"),
         "phase": phase,
-        "score": _SCORE_MAPS[name].get(phase, 0),
         "included": included,
         "weight": 1.0 if included else 0.0,
         "stale": False,
@@ -233,18 +173,8 @@ def _apply_staleness(subs: Dict[str, Dict], frontier: Optional[pd.Timestamp]) ->
             sub["weight"] = _STALE_WEIGHT
 
 
-def _round_half_away_from_zero(x: float) -> int:
-    """Deterministic rounding to the published integer scale.
-
-    ``round()`` is banker's rounding (round(0.5) == 0, round(1.5) == 2), which
-    would make ±0.5 asymmetric; half-away-from-zero keeps the sign handling
-    symmetric so a bullish and a bearish edge case round the same way.
-    """
-    return int(math.floor(x + 0.5)) if x >= 0 else int(math.ceil(x - 0.5))
-
-
 def compute_signals(db_path: str) -> Dict:
-    """Compute composite macro signals, invalidating automatically on a DB swap.
+    """Compute the versioned macro score and latest cycle states.
 
     Thin wrapper: the cache key of :func:`_compute_signals_versioned` includes
     ``_db_version(db_path)`` so an atomic swap of the DB file — regardless of who
@@ -271,12 +201,10 @@ def _compute_signals_versioned(db_path: str, version: tuple) -> Dict:
             debt          : dict  — idem (overall_phase)
             cross_lags    : dict  — leading-lag correlation summary
             as_of           : str   — newest observation across frameworks
-            included        : list  — frameworks in the composite
+            included        : list  — frameworks with a current phase
             excluded        : list  — frameworks with no usable phase
             stale           : list  — frameworks kept at half weight
-            composite_score : int   — renormalised sum in [−4, +4]
-            composite_raw   : float — same, before rounding
-            interpretation  : str   — plain-English summary (+ coverage note)
+            macro_score     : dict  — versioned 0–100 expansion score
     """
     _invalidate_downstream_caches()
     # ── Run classifiers ──────────────────────────────────────────────────────
@@ -321,29 +249,15 @@ def _compute_signals_versioned(db_path: str, version: tuple) -> Dict:
     excluded = [n for n in FRAMEWORKS if not subs[n]["included"]]
     stale = [n for n in FRAMEWORKS if subs[n]["stale"]]
 
-    # ── Composite: weighted mean over available sub-signals, on the [−4,+4] scale
-    weight_total = sum(subs[n]["weight"] for n in included)
-    raw = (
-        sum(subs[n]["weight"] * subs[n]["score"] for n in included)
-        / weight_total * len(FRAMEWORKS)
-        if weight_total else 0.0
-    )
-    composite = _round_half_away_from_zero(raw)
-
-    interpretation = _interpret(composite)
-    if excluded or stale:
-        note = [f"coverage {len(included)}/{len(FRAMEWORKS)}"]
-        if excluded:
-            note.append("no data: " + ", ".join(excluded))
-        if stale:
-            note.append("stale, half weight: " + ", ".join(stale))
-        interpretation += " | " + "; ".join(note)
-
     return {
         "merrill": subs["merrill"],
         "credit": subs["credit"],
         "inventory": subs["inventory"],
         "debt": subs["debt"],
+        "macro_score": compute_macro_score(
+            db_path, frames["merrill"], frames["credit"],
+            frames["inventory"], frames["debt"],
+        ),
         "cross_lags": {
             "m1_ppi_best_lag": cross["m1_ppi_best_lag"],
             "m1_ppi_max_corr": round(cross["m1_ppi_max_corr"], 3) if pd.notna(cross["m1_ppi_max_corr"]) else None,
@@ -354,9 +268,6 @@ def _compute_signals_versioned(db_path: str, version: tuple) -> Dict:
         "included": included,
         "excluded": excluded,
         "stale": stale,
-        "composite_score": composite,
-        "composite_raw": round(raw, 2),
-        "interpretation": interpretation,
     }
 
 

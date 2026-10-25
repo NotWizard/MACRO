@@ -148,14 +148,13 @@ class CreditCycle(BaseModel):
     latest_phase: str | None
     latest_m2_yoy: float | None
 
-# schemas/signals.py
+# schemas/signals.py（2026-10-25 起）
 class SignalSummary(BaseModel):
-    composite_score: int            # [-4, +4]
-    interpretation: str
-    merrill: PhaseScore
-    credit: PhaseScore
-    inventory: PhaseScore
-    debt: PhaseScore
+    macro_score: MacroScore         # 版本化 0–100 扩张度 + 压力/置信度
+    merrill: dict                    # 四周期仅保留描述性相位
+    credit: dict
+    inventory: dict
+    debt: dict
 
 # schemas/refresh.py
 class RefreshResult(BaseModel):

@@ -13,14 +13,53 @@ export interface CycleFrame {
   value_col: string | null
 }
 
+export interface MacroScorePart {
+  name: string
+  label: string
+  value: number | null
+  score: number | null
+  weight: number
+  unit: string
+  as_of: string | null
+}
+
+export interface MacroScoreComponent {
+  key: string
+  label: string
+  score: number | null
+  weight: number
+  contribution: number
+  available: boolean
+  parts: MacroScorePart[]
+  as_of: string | null
+}
+
+export interface MacroScore {
+  version: string
+  score: number | null
+  label: string
+  pressure: number | null
+  pressure_components: Record<string, number | null>
+  confidence: number
+  freshness: number
+  agreement: number
+  coverage: number
+  as_of: string | null
+  components: Record<string, MacroScoreComponent>
+  positives: string[]
+  negatives: string[]
+  warnings: string[]
+  weights: Record<string, number>
+  method: string
+}
+
 export interface SignalSummary {
   merrill: Record<string, unknown>
   credit: Record<string, unknown>
   inventory: Record<string, unknown>
   debt: Record<string, unknown>
+  macro_score?: MacroScore | null
   cross_lags: Record<string, unknown>
-  composite_score: number
-  interpretation: string
 }
 
 export interface RefreshResult {
@@ -84,6 +123,9 @@ export interface Commentary {
   regenerating: boolean
   overall: string
   sections: Record<string, string>
+  report: string
+  report_status: 'ready' | 'missing'
+  report_msg: string | null
   provenance: CommentaryProvenance | null
 }
 
@@ -128,6 +170,7 @@ export interface CommentaryHistoryItem {
   status: string
   stale: boolean
   overall_preview: string
+  report_available: boolean
 }
 
 export interface CommentaryHistoryIndex {
@@ -143,7 +186,11 @@ export interface PhaseFlip {
 export interface SignalHistoryRow {
   ts: string
   data_as_of: string | null
-  composite: number
+  macro_score: number | null
+  macro_label: string | null
+  macro_pressure: number | null
+  macro_confidence: number | null
+  score_version: string | null
   merrill: string | null
   credit: string | null
   inventory: string | null

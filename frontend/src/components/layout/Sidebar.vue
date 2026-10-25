@@ -27,8 +27,7 @@ const groups = [
 // Plain function, not a computed factory: the template re-evaluates on every
 // route change anyway, so wrapping each call in computed() only created 9 new
 // (never-disposed) refs per render. String compare is trivially cheap.
-const isActive = (to: string): boolean =>
-  to === '/overview' ? route.path === to : route.path.startsWith(to)
+const isActive = (to: string): boolean => route.path.startsWith(to)
 </script>
 
 <template>

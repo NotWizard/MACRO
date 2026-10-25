@@ -21,6 +21,8 @@ TABLE_CALENDAR = {
     "ppi": dict(kind="release", months=tuple(range(1, 13)), days=[(8, 12)], channel="eastmoney"),
     # 官方 PMI 当月最后一天、财新次月首个工作日，跨月 → 双窗口
     "pmi": dict(kind="release", months=tuple(range(1, 13)), days=[(1, 5), (25, 31)], channel="nbs-akshare"),
+    # NBS 发布页自带 13 个月分项表，随官方 PMI 同日更新
+    "pmi_detail": dict(kind="release", months=tuple(range(1, 13)), days=[(1, 5), (25, 31)], channel="nbs-release"),
     # NIFD 季报约季后月 20–30 日；CNBS 经 AKShare 滞后且不定期 → 宽窗口兜底
     "leverage": dict(kind="release", months=(1, 4, 7, 10), days=[(10, 31)], channel="cnbs-akshare"),
     # 央行社融初值与金融统计同批（每月 10–15 日）
@@ -29,8 +31,12 @@ TABLE_CALENDAR = {
     "lpr": dict(kind="release", months=tuple(range(1, 13)), days=[(19, 22)], channel="pbc-akshare"),
     # NBS 规上工业增加值每月 15–16 日；1–2 月合并值 3 月中旬发布，窗口天然覆盖
     "industrial": dict(kind="release", months=tuple(range(1, 13)), days=[(12, 20)], channel="nbs-akshare"),
+    # 社零 / 固定资产投资 / 失业率与月度国民经济运行发布会大致同批
+    "domestic_demand": dict(kind="release", months=tuple(range(1, 13)), days=[(12, 22)], channel="eastmoney+nbs"),
     # NBS 70 城房价每月 15–18 日；1、2 月照常单独发布
     "house_price": dict(kind="release", months=tuple(range(1, 13)), days=[(12, 20)], channel="nbs-akshare"),
+    # 房地产开发投资与销售情况每月 15–18 日发布
+    "real_estate_activity": dict(kind="release", months=tuple(range(1, 13)), days=[(12, 22)], channel="nbs-release"),
     # NBS 年度数据/公报一季度发布；源现被 NBS WAF 封锁，窗口按真实节奏保留，失败经探针可见
     "household_income": dict(kind="release", months=(1, 2, 3), days=[(1, 31)], channel="nbs-akshare"),
     # 新增人民币贷款与社融同批金融统计数据

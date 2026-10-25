@@ -20,6 +20,9 @@ class Commentary(BaseModel):
     regenerating: bool = False         # 生成在途但展示上一批（F10 语义合并）
     overall: str = ""
     sections: dict[str, str] = {}
+    report: str = ""
+    report_status: str = "missing"     # ready | missing
+    report_msg: str | None = None
     provenance: Provenance | None = None
 
 
@@ -31,6 +34,7 @@ class BatchItem(BaseModel):            # M4c：history 索引行（每批一行�
     status: str = "ok"                 # 落库批次必然完整，恒 ok
     stale: bool = False
     overall_preview: str = ""          # overall 前 80 字（超长加「…」）
+    report_available: bool = False
 
 
 class HistoryIndex(BaseModel):

@@ -52,8 +52,9 @@ def test_signals_in_range():
     resp = client.get("/api/v1/signals")
     assert resp.status_code == 200
     s = resp.json()
-    assert -4 <= s["composite_score"] <= 4
-    assert s["interpretation"]
+    assert s["macro_score"]["version"] == "macro-expansion-v1"
+    assert s["macro_score"]["score"] is None or 0 <= s["macro_score"]["score"] <= 100
+    assert "composite_score" not in s
 
 
 def test_refresh_status():

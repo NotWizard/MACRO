@@ -24,7 +24,10 @@ from backend.app.main import app  # noqa: E402
 
 client = TestClient(app)
 
-FIELDS = ("ts", "data_as_of", "composite", "merrill", "credit", "inventory", "debt")
+FIELDS = (
+    "ts", "data_as_of", "macro_score", "macro_label", "macro_pressure",
+    "macro_confidence", "score_version", "merrill", "credit", "inventory", "debt",
+)
 
 
 def _load_writer_mod():
@@ -40,7 +43,9 @@ def _load_writer_mod():
 # ── 1. flip detection (pure function, constructed sequences) ────────────────
 def _row(ts, merrill="recovery", credit="easing", inventory="active_restocking",
          debt="beautiful_deleveraging"):
-    return {"ts": ts, "data_as_of": None, "composite": 0,
+    return {"ts": ts, "data_as_of": None, "macro_score": 50.0,
+            "macro_label": "弱复苏 · 结构分化", "macro_pressure": 50.0,
+            "macro_confidence": 80.0, "score_version": "macro-expansion-v1",
             "merrill": merrill, "credit": credit,
             "inventory": inventory, "debt": debt}
 
@@ -90,7 +95,8 @@ def test_two_writes_two_rows():
 
         conn = sqlite3.connect(tmp)
         rows = conn.execute(
-            "SELECT ts, data_as_of, composite, merrill, credit, inventory, debt "
+            "SELECT ts, data_as_of, macro_score, macro_label, macro_pressure, "
+            "macro_confidence, score_version, merrill, credit, inventory, debt "
             "FROM signal_history ORDER BY rowid").fetchall()
         conn.close()
         assert len(rows) == 2                  # append-only: no dedup
@@ -99,11 +105,15 @@ def test_two_writes_two_rows():
         from analysis.signals import compute_signals
         sig = compute_signals(str(tmp))
         for r in rows:
-            assert r[2] == sig["composite_score"]
-            assert r[3] == sig["merrill"]["phase"]
-            assert r[4] == sig["credit"]["phase"]
-            assert r[5] == sig["inventory"]["phase"]
-            assert r[6] == sig["debt"]["phase"]
+            assert r[2] == sig["macro_score"]["score"]
+            assert r[3] == sig["macro_score"]["label"]
+            assert r[4] == sig["macro_score"]["pressure"]
+            assert r[5] == sig["macro_score"]["confidence"]
+            assert r[6] == sig["macro_score"]["version"]
+            assert r[7] == sig["merrill"]["phase"]
+            assert r[8] == sig["credit"]["phase"]
+            assert r[9] == sig["inventory"]["phase"]
+            assert r[10] == sig["debt"]["phase"]
             assert r[1] is None or re.fullmatch(r"\d{4}-\d{2}", r[1])
     finally:
         Path(tmp).unlink(missing_ok=True)
