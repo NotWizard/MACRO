@@ -23,6 +23,7 @@ Two concurrency guarantees (F6), both enforced in ``collect_all``:
 """
 
 import logging
+import math
 import os
 import threading
 import time
@@ -95,6 +96,13 @@ def _iso_from_ts(ts) -> str:
     return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%d")
 
 
+def _write_points(metric, points):
+    count = crcl_db.upsert_points(metric, points)
+    if not count:
+        raise ValueError(f"{metric}: 无有效数据点")
+    return count
+
+
 def collect_usdc_circ(run_id: str) -> int:
     """USDC 流通量历史（DefiLlama 聚合端点，stablecoin=2，已去跨链桥重复）。"""
     t0 = time.time()
@@ -110,7 +118,7 @@ def collect_usdc_circ(run_id: str) -> int:
             v = (row.get("totalCirculatingUSD") or {}).get("peggedUSD")
             if v is not None:
                 points.append((_iso_from_ts(row["date"]), float(v)))
-        n = crcl_db.upsert_points("usdc_circ", points)
+        n = _write_points("usdc_circ", points)
         _log(run_id, "defillama_usdc", "ok", f"{n} 个数据点", t0)
         return n
     except Exception as e:  # noqa: BLE001 — collector must never raise
@@ -133,7 +141,7 @@ def collect_eurc_circ(run_id: str) -> int:
             v = (row.get("totalCirculating") or {}).get("peggedEUR")
             if v is not None:
                 points.append((_iso_from_ts(row["date"]), float(v)))
-        n = crcl_db.upsert_points("eurc_circ", points)
+        n = _write_points("eurc_circ", points)
         _log(run_id, "defillama_eurc", "ok", f"{n} 个数据点", t0)
         return n
     except Exception as e:  # noqa: BLE001
@@ -156,7 +164,7 @@ def collect_stablecoin_total(run_id: str) -> int:
             v = (row.get("totalCirculatingUSD") or {}).get("peggedUSD")
             if v is not None:
                 points.append((_iso_from_ts(row["date"]), float(v)))
-        n = crcl_db.upsert_points("stablecoin_total", points)
+        n = _write_points("stablecoin_total", points)
         _log(run_id, "defillama_total", "ok", f"{n} 个数据点", t0)
         return n
     except Exception as e:  # noqa: BLE001
@@ -174,8 +182,9 @@ def collect_treasury(run_id: str) -> int:
     year_now = datetime.now(timezone.utc).year
     cols = {"3 Mo": "treasury_3m", "6 Mo": "treasury_6m", "1 Yr": "treasury_1y"}
     total = 0
-    try:
-        for year in range(year_now - TREASURY_YEARS + 1, year_now + 1):
+    failed_years = []
+    for year in range(year_now, year_now - TREASURY_YEARS, -1):
+        try:
             url = (
                 "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/"
                 f"daily-treasury-rates.csv/{year}/all?type=daily_treasury_yield_curve"
@@ -186,16 +195,18 @@ def collect_treasury(run_id: str) -> int:
             df = pd.read_csv(io.StringIO(r.text))
             df["date"] = pd.to_datetime(df["Date"], format="%m/%d/%Y").dt.strftime("%Y-%m-%d")
             for src, metric in cols.items():
-                if src not in df.columns:
-                    continue
                 sub = df[["date", src]].dropna()
                 points = [(d, float(v)) for d, v in zip(sub["date"], sub[src])]
-                total += crcl_db.upsert_points(metric, points)
+                total += _write_points(metric, points)
+        except Exception as e:  # noqa: BLE001
+            failed_years.append(str(year))
+            logger.warning("[crcl] Treasury %s: %s", year, e)
+    if failed_years:
+        _log(run_id, "treasury_csv", "partial" if total else "error",
+             f"{total} 个有效数据点；{', '.join(failed_years)} 年未完整更新", t0)
+    else:
         _log(run_id, "treasury_csv", "ok", f"{total} 个数据点（{TREASURY_YEARS} 年）", t0)
-        return total
-    except Exception as e:  # noqa: BLE001
-        _log(run_id, "treasury_csv", "error", f"{type(e).__name__}: {e}", t0)
-        return total
+    return total
 
 
 def collect_crcl_stock(run_id: str) -> int:
@@ -215,8 +226,8 @@ def collect_crcl_stock(run_id: str) -> int:
             (d.strftime("%Y-%m-%d"), float(v))
             for d, v in zip(df["date"], df["volume"])
         ]
-        n = crcl_db.upsert_points("crcl_close", points_close)
-        n += crcl_db.upsert_points("crcl_volume", points_vol)
+        n = _write_points("crcl_close", points_close)
+        n += _write_points("crcl_volume", points_vol)
         _log(run_id, "akshare_crcl", "ok", f"{n} 个数据点（AKShare）", t0)
         return n
     except Exception as e:  # noqa: BLE001
@@ -226,11 +237,11 @@ def collect_crcl_stock(run_id: str) -> int:
     try:
         import yfinance as yf
 
-        h = _call_with_timeout(lambda: yf.Ticker("CRCL").history(period="max"))
+        h = _call_with_timeout(lambda: yf.Ticker("CRCL").history(period="max", auto_adjust=False))
         points_close = [(d.strftime("%Y-%m-%d"), float(v)) for d, v in zip(h.index, h["Close"])]
         points_vol = [(d.strftime("%Y-%m-%d"), float(v)) for d, v in zip(h.index, h["Volume"])]
-        n = crcl_db.upsert_points("crcl_close", points_close)
-        n += crcl_db.upsert_points("crcl_volume", points_vol)
+        n = _write_points("crcl_close", points_close)
+        n += _write_points("crcl_volume", points_vol)
         _log(run_id, "yfinance_crcl", "ok", f"{n} 个数据点（备用源）", t1)
         return n
     except Exception as e:  # noqa: BLE001
@@ -255,6 +266,9 @@ def collect_valuation_snapshot(run_id: str) -> bool:
             "week52_high": info.get("fiftyTwoWeekHigh"),
             "pe_note": "Yahoo Finance 口径；trailingPE 受一次性项目影响，与 WSJ 等口径存在差异",
         }
+        if not any(isinstance(snap[k], (int, float)) and math.isfinite(snap[k])
+                   for k in ("price", "market_cap", "trailing_pe", "forward_pe", "ps_ttm")):
+            raise ValueError("估值接口未返回可用核心字段")
         crcl_db.set_snapshot("valuation", snap)
         _log(run_id, "yfinance_valuation", "ok", "估值快照已更新", t0)
         return True
@@ -321,27 +335,34 @@ def _collect_all_locked(progress_cb, stop_event) -> dict:
         ("美债收益率", collect_treasury),
         ("CRCL 日线", collect_crcl_stock),
     ]
-    summary = {"status": "ok", "run_id": run_id, "steps": []}
+    steps.append(("估值快照", collect_valuation_snapshot))
+    failed = []
     for i, (name, fn) in enumerate(steps):
         # Cancellation is BETWEEN steps: a thread blocked in a socket read cannot
         # be interrupted (the per-call ceiling in _call_with_timeout bounds it).
         if stop_event is not None and stop_event.is_set():
             return {"status": "cancelled", "msg": "采集已取消（客户端断开）",
                     "run_id": run_id, "steps": [], "alerts_changed": []}
-        fn(run_id)
+        if not fn(run_id):
+            failed.append(name)
         if progress_cb:
-            progress_cb((i + 1) / (len(steps) + 2))
-    collect_valuation_snapshot(run_id)
-    if progress_cb:
-        progress_cb((len(steps) + 1) / (len(steps) + 2))
-    update_circ_snapshot(run_id)
-    changed = crcl_alerts.evaluate(run_id)
-    summary["alerts_changed"] = changed
-    logs = crcl_db.get_logs(limit=len(steps) + 2)
+            progress_cb((i + 1) / (len(steps) + 1))
+    successful = len(steps) - len(failed)
+    logs = crcl_db.get_logs(run_id=run_id)
+    if any(l["source"] == "treasury_csv" and l["status"] == "partial" for l in logs):
+        failed.append("美债部分年份")
+    changed = []
+    if successful:
+        update_circ_snapshot(run_id)
+        changed = crcl_alerts.evaluate(run_id)
+    summary = {"status": "ok" if successful else "error", "run_id": run_id,
+               "alerts_changed": changed}
+    summary["msg"] = f"CRCL 已更新 {successful} 项" if successful else "CRCL 未取得可用数据"
+    if failed:
+        summary["msg"] += f" ｜ 未完整更新：{'、'.join(failed)}"
     summary["steps"] = [
         {"source": l["source"], "status": l["status"], "message": l["message"]}
         for l in logs
-        if l["run_id"] == run_id
     ]
     if progress_cb:
         progress_cb(1.0)

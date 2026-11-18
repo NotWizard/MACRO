@@ -71,8 +71,11 @@ def test_freshness_boundary_rejects_one_day_past_the_limit():
     assert not P.validate(_series(newest=over), "ppi", today=TODAY)[0]
 
 
-def test_future_dated_fetch_never_false_rejects():
-    assert P.validate(_series(newest="2030-01-01"), "ppi", today=TODAY)[0]
+def test_future_or_invalid_date_is_rejected():
+    assert P.validate(_series(newest="2030-01-01"), "ppi", today=TODAY) == (False, "future date")
+    frame = _series()
+    frame.loc[0, "date"] = "2026-13-01"
+    assert P.validate(frame, "ppi", today=TODAY) == (False, "invalid date or null grain key")
 
 
 def test_table_without_max_date_lag_is_exempt():

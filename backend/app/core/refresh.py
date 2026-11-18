@@ -38,24 +38,12 @@ VENV_PY = PROJECT_ROOT / ".venv312" / "bin" / "python"
 # whether the child emits any stdout (see run_refresh) so a silent no-timeout
 # network hang inside akshare is actually killed. Env-overridable so tests can
 # set it to a couple of seconds.
-REFRESH_TIMEOUT_S = int(os.getenv("REFRESH_TIMEOUT_S", "300"))
+REFRESH_TIMEOUT_S = int(os.getenv("REFRESH_TIMEOUT_S", "1560"))
 
 # Env flag: run_refresh (which already holds the flock in THIS process) sets this
 # in the child's environment so scripts/01_fetch_data.py skips re-acquiring the
 # same lock (the parent holds it). A manual CLI run has it unset and acquires.
 LOCK_HELD_ENV = "REFRESH_LOCK_HELD"
-
-# Expected number of ✅ lines from 01_fetch_data.py stdout:
-# 16 fetchers (money_supply, gdp, cpi, ppi, pmi, leverage, social_finance, lpr,
-# industrial, house_price, household_income, new_credit, bond_yield, demographics,
-# fiscal, external_demand) + 2 derived tables (derived_monthly, derived_quarterly)
-# = 18 total.
-# Lower bound only: a full run emits more ✅ lines (per-indicator sub-steps,
-# extra derived tables); min(done, expected) clamps so progress just reaches
-# 100% early. Initial fallback only: the 📋 计划抓取 K/N line refines expected
-# per run (incremental mode skips tables outside their release window).
-EXPECTED_FETCH_STEPS = 18
-
 
 # Env vars the fetch child actually needs. Everything else is DROPPED (F12):
 # the old `dict(os.environ)` handed the collector — which never talks to an LLM —
@@ -68,6 +56,7 @@ _ENV_ALLOWLIST = (
     "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",  # corporate CA bundles
     "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
     "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+    "FETCH_TIMEOUT_S", "FETCH_RUN_BUDGET_S",
 )
 
 
@@ -82,6 +71,11 @@ def _subprocess_env() -> dict:
     # Pinned explicitly: the child prints Chinese progress lines to a pipe, and
     # narrowing the env above must not leave it guessing at a non-UTF-8 locale.
     env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUNBUFFERED"] = "1"
+    # The child needs time to leave the fetch loop, validate and atomically
+    # commit partial results before the parent resorts to a hard kill.
+    budget = float(env.get("FETCH_RUN_BUDGET_S", "1500"))
+    env["FETCH_RUN_BUDGET_S"] = str(min(budget, max(0, REFRESH_TIMEOUT_S - 45)))
     return env
 
 
@@ -108,14 +102,23 @@ def read_manifest_summary() -> dict:
     except (json.JSONDecodeError, OSError):
         return {"status": "unknown", "msg": "manifest 读取失败", "ts": None,
                 "updated": [], "kept_previous": []}
-    tables = m.get("tables", {})
+    if not isinstance(m, dict) or not isinstance(m.get("tables"), dict):
+        return {"status": "unknown", "msg": "manifest 格式无效", "ts": None,
+                "updated": [], "kept_previous": []}
+    tables = {k: v for k, v in m["tables"].items() if isinstance(v, dict)}
     updated = [t for t, v in tables.items() if v.get("status") == "updated"]
     kept = [t for t, v in tables.items() if v.get("status") == "kept_previous"]
-    msg = f"✅ 已更新 {len(updated)} 张表"
+    derived_failed = str(m.get("derived", "")).startswith("failed")
+    committed = m.get("committed", not derived_failed)
+    if not committed:
+        updated = []
+        msg = "衍生计算失败，未落库" if derived_failed else "未取得可用更新，保留旧数据"
+    else:
+        msg = f"已更新 {len(updated)} 张表"
     if kept:
-        msg += f" ｜ ⏭️ 跳过 {len(kept)}：{', '.join(kept)}"
+        msg += f" ｜ 保留旧数据 {len(kept)} 张：{', '.join(kept)}"
     return {
-        "status": "ok",
+        "status": "ok" if committed else "error",
         "msg": msg,
         "ts": m.get("ts"),
         "akshare": m.get("akshare"),
@@ -181,6 +184,8 @@ def sources_health(manifest: dict, now=None) -> dict:
         tab = tables.get(s.get("table"))
         if tab and tab.get("status") == "kept_previous":
             warning = f"kept previous — {tab.get('reason', '')}"
+        elif s.get("ok") is False:
+            warning = f"kept previous — {s.get('error') or 'last attempt failed'}"
         elif s.get("dual", {}).get("divergent"):
             d = s["dual"]
             warning = (f"dual-source divergence — {d.get('series')} "
@@ -192,6 +197,8 @@ def sources_health(manifest: dict, now=None) -> dict:
         elif status != "red" and (cf == 1 or warning):
             status = "yellow"
     updated_at = manifest.get("ts")
+    if str(manifest.get("derived", "")).startswith("failed"):
+        status = "red"
     stale = _staleness_status(updated_at, now)
     if stale and _SEVERITY[stale] > _SEVERITY[status]:
         status = stale
@@ -223,7 +230,7 @@ def _build_cmd(full: bool) -> list:
 def run_refresh(progress_cb=None, stop_event=None, full=False) -> dict:
     """Run the fetch pipeline as a subprocess; clear caches on success.
 
-    Streams stdout so ``progress_cb(fraction)`` is driven by per-table ✅ lines.
+    Streams stdout so ``progress_cb(fraction)`` follows completed table attempts.
     Single-flight via an OS-level ``flock`` (see backend.app.core.locking): the
     lock is acquired atomically for the WHOLE refresh, so two concurrent callers
     can never both spawn a fetcher and race on the shared staging DB — the loser
@@ -246,6 +253,14 @@ def _run_refresh_locked(progress_cb, stop_event, full) -> dict:
     """Body of run_refresh, executed while holding the refresh lock."""
     proc = None
     try:
+        def manifest_version():
+            try:
+                stat = MANIFEST_PATH.stat()
+                return stat.st_ino, stat.st_mtime_ns
+            except FileNotFoundError:
+                return None
+
+        before_manifest = manifest_version()
         env = _subprocess_env()
         env[LOCK_HELD_ENV] = "1"  # 父进程已持锁 → 子脚本跳过重复获取，避免自我冲突
         proc = subprocess.Popen(
@@ -276,18 +291,17 @@ def _run_refresh_locked(progress_cb, stop_event, full) -> dict:
         reader = threading.Thread(target=_pump, daemon=True)
         reader.start()
 
-        expected, done = EXPECTED_FETCH_STEPS, 0
         if progress_cb:
             progress_cb(0.0)
         tail = []
-        deadline = time.time() + REFRESH_TIMEOUT_S
+        deadline = time.monotonic() + REFRESH_TIMEOUT_S
         while True:
             if stop_event is not None and stop_event.is_set():
                 proc.kill()
                 proc.wait()
                 return {"status": "cancelled", "msg": "刷新已取消（客户端断开）",
                         "ts": None, "updated": [], "kept_previous": []}
-            remaining = deadline - time.time()
+            remaining = deadline - time.monotonic()
             if remaining <= 0:
                 proc.kill()
                 proc.wait()
@@ -306,22 +320,24 @@ def _run_refresh_locked(progress_cb, stop_event, full) -> dict:
                 break  # child stdout hit EOF → process is finishing
             tail.append(line)
             tail = tail[-60:]
-            m = re.search(r"计划抓取 (\d+)/", line)
-            if m:
-                # 计划行口径本次实际抓取数 + derived_monthly/derived_quarterly 两条 ✅
-                expected = int(m.group(1)) + 2
-            if "✅" in line:
-                done = min(done + 1, expected)
-                if progress_cb:
-                    progress_cb(done / expected)
-        proc.wait()
-        if proc.returncode != 0:
+            m = re.search(r"\bREFRESH_STEP (\d+)/(\d+)$", line)
+            if m and progress_cb:
+                progress_cb(int(m[1]) / int(m[2]))
+        proc.wait(timeout=max(0.01, deadline - time.monotonic()))
+        # CLI exit 2 means one or more tables kept their old values. Other
+        # tables may already have landed, so trust the commit flag in the
+        # current run's manifest and still refresh consumers of that data.
+        if proc.returncode not in (0, 2, 3) or (
+                proc.returncode != 0 and manifest_version() == before_manifest):
             eid = _log_error_id(
                 f"采集脚本退出码 {proc.returncode}，子进程输出尾部", "".join(tail))
             return {"status": "error",
                     "msg": f"❌ 采集脚本退出码 {proc.returncode}",
                     "error_id": eid,
                     "ts": None, "updated": [], "kept_previous": []}
+        result = read_manifest_summary()
+        if proc.returncode == 3 or result["status"] != "ok":
+            return result
         if progress_cb:
             progress_cb(1.0)
         clear_all_caches()
@@ -335,8 +351,11 @@ def _run_refresh_locked(progress_cb, stop_event, full) -> dict:
         # Refresh-as-rerun policy: mark old commentary stale + trigger a fresh
         # AI analysis on the updated data (fire-and-forget, non-blocking).
         from backend.app.core import commentary
-        commentary.mark_stale_and_regenerate()
-        return read_manifest_summary()
+        try:
+            commentary.mark_stale_and_regenerate()
+        except Exception:
+            logger.exception("[refresh] 数据已落库，但未能重新触发评论")
+        return result
     except Exception as e:  # never let the API crash
         if proc is not None:
             proc.kill()

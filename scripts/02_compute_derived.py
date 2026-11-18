@@ -7,13 +7,14 @@
 import sqlite3
 import os
 import sys
+from contextlib import closing
 
 import pandas as pd
 import numpy as np
 
 # allow `import _pipeline` whether run as a script or loaded via importlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _pipeline import enforce_indexes  # noqa: E402
+from _pipeline import backup_db, commit_staging, discard_staging, enforce_indexes, open_staging  # noqa: E402
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "macro_data.db")
 
@@ -299,8 +300,14 @@ def main():
     不再直写 live 库；commentary/signal_history 由 commit_staging 自动并入保留。"""
     # allow `import _pipeline` when run as a script（同 01_fetch_data.py）
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from _pipeline import backup_db, commit_staging, discard_staging, open_staging
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from backend.app.core.locking import refresh_lock
 
+    with refresh_lock():
+        _recompute_live()
+
+
+def _recompute_live():
     if not os.path.exists(DB_PATH):
         print(f"❌ 数据库不存在: {DB_PATH}")
         print("   请先运行: python scripts/01_fetch_data.py")
@@ -309,10 +316,9 @@ def main():
     backup_db()
     staging = open_staging()
     try:
-        conn = sqlite3.connect(staging)
-        monthly, quarterly = compute_derived(conn)
-        conn.commit()
-        conn.close()
+        with closing(sqlite3.connect(staging)) as conn:
+            monthly, quarterly = compute_derived(conn)
+            conn.commit()
     except Exception:
         discard_staging()
         raise
@@ -327,4 +333,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except BlockingIOError:
+        sys.exit("已有宏观刷新/补充进行中，本次未重算。")

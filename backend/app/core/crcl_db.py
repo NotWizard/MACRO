@@ -18,6 +18,7 @@ refcounting happened to collect it.
 """
 
 import json
+import math
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -107,7 +108,9 @@ def upsert_points(metric: str, points: list[tuple[str, float]]) -> int:
     """Insert/replace (date, value) rows for one metric; returns row count."""
     if not points:
         return 0
-    rows = [(metric, d, float(v)) for d, v in points]
+    rows = [(metric, d, float(v)) for d, v in points if math.isfinite(float(v))]
+    if not rows:
+        return 0
     with _write_conn() as conn:
         conn.executemany(
             "INSERT OR REPLACE INTO metric_points (metric, date, value) VALUES (?, ?, ?)",
@@ -170,13 +173,14 @@ def add_log(run_id: str, source: str, status: str, message: str, duration_ms: in
         )
 
 
-def get_logs(limit: int = 100) -> list[dict]:
+def get_logs(limit: int = 100, *, run_id: str | None = None) -> list[dict]:
     with _read_conn() as conn:
-        rows = conn.execute(
-            "SELECT run_id, source, status, message, duration_ms, ts"
-            " FROM collect_log ORDER BY id DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        sql = "SELECT run_id, source, status, message, duration_ms, ts FROM collect_log"
+        params = ()
+        if run_id is not None:
+            sql += " WHERE run_id = ?"
+            params = (run_id,)
+        rows = conn.execute(sql + " ORDER BY id DESC LIMIT ?", (*params, limit)).fetchall()
     return [dict(r) for r in rows]
 
 

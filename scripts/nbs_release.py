@@ -185,6 +185,25 @@ def fetch_pmi_details() -> pd.DataFrame:
     return parse_pmi_release(page)
 
 
+def fetch_ppi_headlines(limit: int = 3) -> pd.DataFrame:
+    """Actual national ex-factory rates from NBS release titles, not estimates."""
+    rows = []
+    for release in find_releases("月份工业生产者出厂价格", limit=limit):
+        title = release["title"]
+        month = _DATE_RE.match(title)
+        if not month:
+            continue
+        rates = {}
+        for key, label in (("ppi_yoy", "同比"), ("ppi_mom", "环比")):
+            m = re.search(rf"{label}\s*(持平|上涨|下降)\s*(\d+(?:\.\d+)?%?)?", title)
+            if m and (m[1] == "持平" or m[2] and m[2].endswith("%")):
+                rates[key] = 0.0 if m[1] == "持平" else float(m[2][:-1]) * (-1 if m[1] == "下降" else 1)
+        if len(rates) == 2:
+            rows.append({"date": f"{month[1]}-{int(month[2]):02d}-01",
+                         **rates, "ppi_mom_source": release["url"]})
+    return pd.DataFrame(rows, columns=["date", "ppi_yoy", "ppi_mom", "ppi_mom_source"])
+
+
 def fetch_real_estate_activity(limit: int = 15) -> pd.DataFrame:
     releases = find_releases("全国房地产市场基本情况", limit=limit, max_pages=24)
     rows = []

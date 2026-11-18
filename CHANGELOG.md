@@ -32,6 +32,13 @@ Verification:
   2. Backend tests passed `385`; frontend Vitest passed `42`, with `vue-tsc` and the production build also passing.
   3. Headless Chrome verified focus-expanded and Escape-closed tooltips on all five dimensions, plus 22 correctly rendered canvases across the Merrill, inventory, real-estate, demographics and fiscal/external views with no error branch.
 
+### 旧版取数链路：校验、部分落库与 Agent 交接
+
+- 宏观刷新按实际完成表数推进，取数重试遵守整轮预算；区分部分落库、全未落库与衍生失败，已提交的部分仍刷新缓存及评论。CLI 增加 `--tables`，独立重算与采集共用写锁。
+- 拒收无效日期、空粒度键和必需序列最新期倒退；记录真实失败连次，不把社融旧历史原样写回报成功。PMI 分项/地产活动的滚动发布保留已有历史，独立来源故障不清空已核实的失业率和私营 PMI。
+- PPI 环比改取国家统计局明示值，按参考月保留原文来源；不再用同比加假设基值推算。CRCL 空源/空估值不覆盖既有数据，美债按年份隔离失败，采集结果列出失败项。
+- 修复取数手册的 NIFD 路径、补充值参考期、全量/定向命令及核验流程。未刷新生产数据，留给下一次 Agent 按文档执行。
+
 ### 宏观分析：版本化扩张度 + 完整 AI 报告
 
 概述：用可解释的五维 `0–100` 宏观扩张度取代旧四相位相加信号，并新增保留侧栏的全页 AI 宏观报告及可在 AI 设置中编辑的报告 Skill。

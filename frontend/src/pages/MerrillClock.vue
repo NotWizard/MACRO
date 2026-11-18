@@ -80,7 +80,7 @@ const employmentOpt = themedOption(() => (buildMultiLine(demand.value, [
     <GraphCard title="CPI vs PPI 同比" tip="居民消费价格 vs 工业生产者出厂价格同比——美林时钟纵轴 CPI 的主轴曲线。" :loading="loading" :error="error" @retry="load">
       <EChart :option="cpiPpiOpt" height="300px" />
     </GraphCard>
-    <GraphCard title="CPI vs PPI 环比" tip="居民消费价格 vs 工业生产者出厂价格环比（月度高频先行、0 上下波动），与同比图呼应。PPI 环比为同比推导值（东财无免费直接源）。" :loading="loading" :error="error" @retry="load">
+    <GraphCard title="CPI vs PPI 环比" tip="居民消费价格与工业生产者出厂价格环比。PPI 表首次成功按新规则刷新后，环比仅保留国家统计局公布值；未取得的月份留空。" :loading="loading" :error="error" @retry="load">
       <EChart :option="cpiMomOpt" height="260px" />
     </GraphCard>
     <GraphCard title="消费与固定资产投资" tip="社会消费品零售总额当月/累计同比 + 固定资产投资（不含农户）当月同比。社零衡量居民商品消费，固投衡量企业、基建与地产形成的资本开支；零线为同比持平。" :loading="loading" :error="error" @retry="load">

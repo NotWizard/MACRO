@@ -29,6 +29,7 @@ from _pipeline import (  # noqa: E402
     DB_PATH as _LIVE_DB,
     STAGING_PATH as _STAGING,
     MANIFEST_PATH,
+    TABLE_SPECS,
     iso_ts,
     backup_db,
     open_staging,
@@ -47,6 +48,7 @@ from nifd_leverage import nifd_supplement_df  # noqa: E402
 from pbc_shrzgm import pbc_shrzgm_supplement_df  # noqa: E402 — 单一真相源（01+04 共用）
 from nbs_release import (  # noqa: E402
     fetch_pmi_details as _fetch_nbs_pmi_details,
+    fetch_ppi_headlines as _fetch_nbs_ppi_headlines,
     fetch_real_estate_activity as _fetch_nbs_real_estate_activity,
 )
 from _specs import DATE_PARSERS, FETCH_SPECS, pick_curve_table, to_num  # noqa: E402
@@ -118,6 +120,18 @@ def save_to_db(df, table_name, conn, if_exists="replace"):
     """
     prev = table_distinct_keys(conn, table_name)
     ok, reason = validate(df, table_name, prev)
+    if ok and prev:
+        old_columns = {r[1] for r in conn.execute(f"PRAGMA table_info([{table_name}])")}
+        for col in TABLE_SPECS.get(table_name, {}).get("required", []):
+            if col == "date" or col not in old_columns:
+                continue
+            last = conn.execute(
+                f"SELECT MAX(date) FROM [{table_name}] WHERE [{col}] IS NOT NULL"
+            ).fetchone()[0]
+            newest = df.loc[df[col].notna(), "date"].max()
+            if last and pd.Timestamp(newest) < pd.Timestamp(last):
+                ok, reason = False, f"{col}: period regressed ({str(newest)[:10]} < {str(last)[:10]})"
+                break
     if not ok:
         _MANIFEST["tables"][table_name] = {
             "status": "kept_previous",
@@ -159,8 +173,7 @@ TABLE_TIMEOUT_S = {
     "real_estate_activity": 300.0,
     "domestic_demand": 180.0,
 }
-# 整轮墙钟上限：无论多少表挂住，进程一定会结束（API 侧另有 REFRESH_TIMEOUT_S=300
-# 的父进程超时；这里是给 launchd/cron 无父进程场景的自守）
+# 取数阶段总预算（子进程也受 API 硬超时约束；留时间校验与提交）
 FETCH_RUN_BUDGET_S = float(os.getenv("FETCH_RUN_BUDGET_S", "1500"))
 FETCH_ATTEMPTS = 2          # 首次 + 1 次重试（瞬时网络抖动/WAF 偶发 403）
 FETCH_BACKOFF_S = 5.0       # 指数退避基数：5s → 10s → …
@@ -247,7 +260,7 @@ def _soft_empty(name):
 
 
 def run_fetcher(name, f, conn_factory, timeout_s, attempts=FETCH_ATTEMPTS,
-                backoff_s=FETCH_BACKOFF_S, sleep=time.sleep):
+                backoff_s=FETCH_BACKOFF_S, sleep=time.sleep, deadline=None):
     """Run one fetcher under a hard timeout with bounded exponential backoff.
 
     Returns (ok, err) with the pre-existing meaning of ok: "no exception and no
@@ -259,14 +272,17 @@ def run_fetcher(name, f, conn_factory, timeout_s, attempts=FETCH_ATTEMPTS,
     """
     err = None
     for attempt in range(1, attempts + 1):
+        budget = timeout_s if deadline is None else min(timeout_s, deadline - time.monotonic())
+        if budget <= 0:
+            return False, "run budget exhausted"
         conn = conn_factory()
         abandoned = False
         try:
-            _call_with_timeout(lambda: f(conn), timeout_s, name)
+            _call_with_timeout(lambda: f(conn), budget, name)
         except FetchTimeout as e:
             abandoned, err = True, f"FetchTimeout: {e}"
             logger.error("table %s attempt %d/%d timed out (%.0fs budget)",
-                         name, attempt, attempts, timeout_s)
+                         name, attempt, attempts, budget)
         except Exception as e:
             err = f"{type(e).__name__}: {e}"
             logger.warning("table %s attempt %d/%d failed: %s", name, attempt, attempts, err)
@@ -279,6 +295,8 @@ def run_fetcher(name, f, conn_factory, timeout_s, attempts=FETCH_ATTEMPTS,
             _close_conn(conn, abandoned=abandoned)
         if attempt < attempts:
             wait = backoff_s * (2 ** (attempt - 1))
+            if deadline is not None and time.monotonic() + wait >= deadline:
+                break
             log(f"  ⏳ {name}: 第 {attempt} 次失败，{wait:.0f}s 后重试 ({err})")
             sleep(wait)
     # last attempt was a soft gate rejection → keep the legacy ok=True contract
@@ -416,57 +434,38 @@ def fetch_cpi(conn):
 # ─────────────────────────────────────────────
 # 4. PPI 年率 (东方财富)
 # ─────────────────────────────────────────────
-def _derive_ppi_mom(df: pd.DataFrame) -> pd.DataFrame:
-    """由 PPI 同比重建定基指数、再求环比(%)。
-
-    东财/akshare 均无免费 PPI 环比源（东财只有同比 BASE_SAME），
-    此为行业标准的同比→定基→环比推导（P_t = P_{t-12}×(1+同比)），
-    用户确认接受推导；前端图注标明"推导值"。
-    """
-    level, rows = {}, []
-    prev_dt = None
-    for _, r in df.sort_values("date").iterrows():
-        dt = pd.to_datetime(r["date"]); yoy = r["ppi_yoy"]
-        y12 = dt - pd.DateOffset(months=12)
-        if pd.notna(yoy) and y12 in level:
-            lv = level[y12] * (1 + yoy / 100)
-        elif pd.notna(yoy):
-            lv = 100.0                      # 种子月
-        else:
-            lv = level.get(prev_dt)         # 同比缺失→沿用上期水平
-        if lv is not None:
-            level[dt] = lv
-            if prev_dt is not None and prev_dt in level and level[prev_dt]:
-                rows.append((r["date"], (lv / level[prev_dt] - 1) * 100))
-        prev_dt = dt
-    return pd.DataFrame(rows, columns=["date", "ppi_mom"])
-
-
 def fetch_ppi(conn):
-    log("采集: PPI 年率 ...")
-    em = _fetch_eastmoney("RPT_ECONOMY_PPI", {
-        "REPORT_DATE": "date",
-        "BASE_SAME": "ppi_yoy",
-    })
-    if em.empty:
-        log("  ⚠️ 东方财富 PPI 无数据，保留旧表")
-        save_to_db(pd.DataFrame(), "ppi", conn)  # 记 kept_previous → 计入退出码/健康灯
-        return pd.DataFrame()
-    em["date"] = pd.to_datetime(em["date"]).dt.strftime("%Y-%m-01")
-    em["ppi_yoy"] = to_num(em["ppi_yoy"])
-    em = em.dropna(subset=["ppi_yoy"])
-
-    em_min = em["date"].min()
+    log("采集: PPI（东财同比历史 + NBS 公布同比与环比） ...")
+    columns = ["date", "ppi_yoy", "ppi_mom", "ppi_mom_source"]
     try:
-        old = pd.read_sql(f"SELECT date, ppi_yoy FROM ppi WHERE date < '{em_min}'", conn)
-    except Exception:
-        old = pd.DataFrame()
-
-    result = pd.concat([old, em], ignore_index=True)
-    result = result.drop_duplicates(subset=["date"], keep="last")
-    result = result.sort_values("date").reset_index(drop=True)
-    # PPI 环比(推导值): 无免费直接源, 由同比重建定基指数再求环比, 图注标明推导值
-    result = result.merge(_derive_ppi_mom(result), on="date", how="left")
+        previous = pd.read_sql("SELECT * FROM ppi", conn).reindex(columns=columns)
+    except pd.errors.DatabaseError:
+        previous = pd.DataFrame(columns=columns)
+    # Legacy PPI MoM is mathematically unidentified from YoY alone. Do not
+    # carry it into the official series when rewriting this table.
+    previous["ppi_mom"] = previous["ppi_mom"].where(previous["ppi_mom_source"].notna())
+    try:
+        em = _fetch_eastmoney("RPT_ECONOMY_PPI", {"REPORT_DATE": "date", "BASE_SAME": "ppi_yoy"})
+        if not em.empty:
+            em["date"] = pd.to_datetime(em["date"]).dt.strftime("%Y-%m-01")
+            em["ppi_yoy"] = to_num(em["ppi_yoy"])
+            em = em.dropna(subset=["date", "ppi_yoy"]).drop_duplicates("date", keep="last")
+    except Exception as e:
+        log(f"  ⚠️ PPI 东财同比不可用: {e}")
+        em = pd.DataFrame()
+    try:
+        official = _fetch_nbs_ppi_headlines()
+    except Exception as e:
+        log(f"  ⚠️ PPI NBS 发布不可用: {e}")
+        official = pd.DataFrame()
+    if em.empty and official.empty:
+        save_to_db(pd.DataFrame(), "ppi", conn)
+        return pd.DataFrame()
+    result = previous.set_index("date")
+    for frame in (em, official):
+        if not frame.empty:
+            result = frame.set_index("date").combine_first(result)
+    result = result.reset_index().sort_values("date").reset_index(drop=True)
     save_to_db(result, "ppi", conn)
     return result
 
@@ -497,22 +496,28 @@ def _pmi_monthly(release_dates, values, col):
 
 def fetch_pmi(conn):
     log("采集: PMI (官方/非制造业=东财, 财新/财新服务=akshare) ...")
+    def latest_ak_months(api, col):
+        try:
+            df = getattr(ak, api)()
+            return _pmi_monthly(df["日期"], df["今值"], col)
+        except Exception as e:
+            log(f"  ⚠️ PMI {col} 采集失败: {e}")
+            return pd.DataFrame(columns=["date", col])
+
     # 官方 + 非制造业 PMI: 东财 RPT_ECONOMY_PMI（当前；akshare macro_china_pmi_yearly
     # 滞后约一年，同杠杆率同款"源滞后"）。东财无数据时回退 akshare。
-    em = _fetch_eastmoney("RPT_ECONOMY_PMI", {
-        "REPORT_DATE": "date", "MAKE_INDEX": "pmi_official", "NMAKE_INDEX": "pmi_non_mfg",
-    })
-    df_cx = ak.macro_china_cx_pmi_yearly()
+    try:
+        em = _fetch_eastmoney("RPT_ECONOMY_PMI", {
+            "REPORT_DATE": "date", "MAKE_INDEX": "pmi_official", "NMAKE_INDEX": "pmi_non_mfg",
+        })
+    except Exception as e:
+        log(f"  ⚠️ 东财 PMI 不可用: {e}")
+        em = pd.DataFrame()
 
     # akshare 官方/非制造业 = 全历史(2005+)底；东财(2008+ 更当前) 覆盖近期，
     # 合并避免切源丢掉 2008 前历史（审查发现的回归）。
-    df_off = ak.macro_china_pmi_yearly()
-    off_ak = _pmi_monthly(df_off["日期"], df_off["今值"], "pmi_official")
-    try:
-        df_non = ak.macro_china_non_man_pmi()
-        non_ak = _pmi_monthly(df_non["日期"], df_non["今值"], "pmi_non_mfg")
-    except Exception:
-        non_ak = pd.DataFrame(columns=["date", "pmi_non_mfg"])
+    off_ak = latest_ak_months("macro_china_pmi_yearly", "pmi_official")
+    non_ak = latest_ak_months("macro_china_non_man_pmi", "pmi_non_mfg")
 
     if em.empty:
         log("  ⚠️ 东财 PMI 无数据，官方/非制造业仅用 akshare")
@@ -530,14 +535,8 @@ def fetch_pmi(conn):
         non["pmi_non_mfg"] = non["pmi_non_mfg_em"].combine_first(non["pmi_non_mfg_ak"])
         non = non[["date", "pmi_non_mfg"]].dropna(subset=["pmi_non_mfg"])
 
-    cx = _pmi_monthly(df_cx["日期"], df_cx["今值"], "pmi_caixin")
-
-    # 财新服务业 PMI（东财无财新口径，仍用 akshare）
-    try:
-        df_svc = ak.macro_china_cx_services_pmi_yearly()
-        svc = _pmi_monthly(df_svc["日期"], df_svc["今值"], "pmi_caixin_svc")
-    except Exception:
-        svc = pd.DataFrame(columns=["date", "pmi_caixin_svc"])
+    cx = latest_ak_months("macro_china_cx_pmi_yearly", "pmi_caixin")
+    svc = latest_ak_months("macro_china_cx_services_pmi_yearly", "pmi_caixin_svc")
 
     result = off.merge(cx, on="date", how="outer") \
                 .merge(non, on="date", how="outer") \
@@ -568,6 +567,7 @@ def fetch_pmi(conn):
                 }]),
             ], ignore_index=True)
     result = result.sort_values("date").reset_index(drop=True)
+    result = _retain_release_history(conn, "pmi", result, reference="pmi_official")
     save_to_db(result, "pmi", conn)
     return result
 
@@ -634,11 +634,12 @@ def fetch_social_finance(conn):
             "corp_bond": to_num(df["其中-企业债券"]),
             "equity": to_num(df["其中-非金融企业境内股票融资"]),
         })
-        result = result.sort_values("date").reset_index(drop=True)
+        result = result.dropna(subset=["total"]).sort_values("date").reset_index(drop=True)
     except Exception as e:
-        log(f"  ⚠️ 社融数据采集失败 (SSL问题): {e}")
-        log(f"  → 请在正式 Python 环境中重新运行")
+        log(f"  ⚠️ 社融主源不可用: {e}")
         result = pd.DataFrame()
+    has_primary = not result.empty
+    primary_max = result["date"].max() if has_primary else None
 
     # Python 3.14 removed ssl.PROTOCOL_TLSv1_2, which the legacy AKShare
     # adapter still references.  When the primary source fails, retain the
@@ -648,22 +649,29 @@ def fetch_social_finance(conn):
     except Exception:
         previous = pd.DataFrame()
     if not previous.empty:
-        result = (pd.concat([previous, result], ignore_index=True)
-                  .drop_duplicates(subset=["date"], keep="last")
-                  .sort_values("date").reset_index(drop=True))
+        if has_primary:
+            result = result.set_index("date").combine_first(previous.set_index("date")).reset_index()
+        else:
+            result = previous
 
     # PBoC 官方 XLSX 备用源: 仅追加比主源更新的月份(如主源滞后时的 2026-05/06)
     sup = pbc_shrzgm_supplement_df()
+    has_supplement = False
     if not sup.empty:
         base_max = result["date"].max() if not result.empty else None
         if base_max is not None:
             sup = sup[sup["date"] > base_max]
         sup = sup.dropna(subset=["total"])   # 不追加未发布月份(NaN)
         if not sup.empty:
+            has_supplement = True
             result = pd.concat([result, sup], ignore_index=True).sort_values("date").reset_index(drop=True)
             log(f"  ℹ️ 社融 PBoC 补充 {len(sup)} 行 (>{base_max})")
 
-    save_to_db(result, "social_finance", conn)
+    if not has_supplement and (not has_primary or
+            (not previous.empty and primary_max < previous.loc[previous["total"].notna(), "date"].max())):
+        save_to_db(pd.DataFrame(), "social_finance", conn)
+    else:
+        save_to_db(result, "social_finance", conn)
     return result
 
 
@@ -1328,6 +1336,15 @@ def fetch_domestic_demand(conn):
     for frame in (fai, unemployment):
         if not frame.empty:
             result = result.merge(frame, on="date", how="outer")
+    # Employment is an independent optional source. WAF fallback may cover
+    # only a few recent releases; don't erase the older rates already fetched.
+    try:
+        previous = pd.read_sql("SELECT * FROM domestic_demand", conn).set_index("date")
+    except pd.errors.DatabaseError:
+        pass
+    else:
+        previous = previous.filter(regex="^unemployment_")
+        result = result.set_index("date").combine_first(previous).reset_index()
     result = result.sort_values("date").reset_index(drop=True)
     save_to_db(result, "domestic_demand", conn)
     return result
@@ -1340,6 +1357,7 @@ def fetch_pmi_detail(conn):
     log("采集: 制造业 PMI 分项（NBS 发布页） ...")
     try:
         result = _fetch_nbs_pmi_details()
+        result = _retain_release_history(conn, "pmi_detail", result)
     except Exception as e:
         log(f"  ⚠️ NBS PMI 分项采集失败: {e}")
         result = pd.DataFrame()
@@ -1354,11 +1372,30 @@ def fetch_real_estate_activity(conn):
     log("采集: 房地产开发与销售活动（NBS 发布页） ...")
     try:
         result = _fetch_nbs_real_estate_activity(limit=15)
+        result = _retain_release_history(conn, "real_estate_activity", result)
     except Exception as e:
         log(f"  ⚠️ NBS 房地产活动数据采集失败: {e}")
         result = pd.DataFrame()
     save_to_db(result, "real_estate_activity", conn)
     return result
+
+
+def _retain_release_history(conn, table, recent, *, reference=None):
+    # NBS pages only expose a rolling window per fetch. Retain older releases
+    # and accept same-month revisions; do not turn a failed fetch into success.
+    if recent.empty:
+        return recent
+    try:
+        previous = pd.read_sql(f"SELECT * FROM [{table}]", conn)
+    except pd.errors.DatabaseError:
+        return recent
+    new_dates, old_dates = recent["date"], previous["date"]
+    if reference:
+        new_dates = new_dates[recent[reference].notna()]
+        old_dates = old_dates[previous[reference].notna()]
+    if new_dates.empty or (not old_dates.empty and new_dates.max() < old_dates.max()):
+        return recent  # stale candidate must go to the regression gate
+    return recent.set_index("date").combine_first(previous.set_index("date")).reset_index()
 
 
 # ─────────────────────────────────────────────
@@ -1392,18 +1429,7 @@ def compute_exit_code(manifest: dict) -> int:
 # 主流程
 # ─────────────────────────────────────────────
 def main():
-    parser = argparse.ArgumentParser(description="中国宏观经济数据采集（默认按发布日历增量，--full 全量）")
-    parser.add_argument("--full", action="store_true", help="跳过发布日历，抓取全部表")
-    args = parser.parse_args()
-
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    _attach_file_log()
     global _MANIFEST
-
-    log("=" * 50)
-    log("中国宏观经济数据采集开始 (staged + atomic)")
-    log("=" * 50)
-
     fetchers = [
         fetch_money_supply,
         fetch_gdp,
@@ -1425,12 +1451,23 @@ def main():
         fetch_fiscal,
         fetch_external_demand,
     ]
+    by_table = {f.__name__.removeprefix("fetch_"): f for f in fetchers}
+    parser = argparse.ArgumentParser(description="中国宏观经济数据采集")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--full", action="store_true", help="跳过发布日历，抓取全部表")
+    mode.add_argument("--tables", nargs="+", choices=by_table, help="跳过发布日历，只抓指定表")
+    args = parser.parse_args()
+
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    _attach_file_log()
+    log("中国宏观经济数据采集开始 (staged + atomic)")
 
     # 抓取计划：release 型表只在发布窗口内抓，market/未知表恒抓（见 release_calendar）
     today = date.today()
-    selected = [(f.__name__.replace("fetch_", ""), f) for f in fetchers
-                if should_fetch(f.__name__.replace("fetch_", ""), today, args.full)]
-    log(f"📋 计划抓取 {len(selected)}/{len(fetchers)} 表（{'全量' if args.full else '增量'}）")
+    selected = [(name, f) for name, f in by_table.items()
+                if (name in args.tables if args.tables else should_fetch(name, today, args.full))]
+    scope = "指定表" if args.tables else "全量" if args.full else "增量"
+    log(f"📋 计划抓取 {len(selected)}/{len(fetchers)} 表（{scope}）")
     if not selected:
         log("窗口内无表，跳过")
         return 0
@@ -1453,9 +1490,9 @@ def main():
     ts = iso_ts()
     _MANIFEST = {"ts": ts, "akshare": getattr(ak, "__version__", "?"), "tables": {}, "sources": []}
 
-    run_deadline = time.time() + FETCH_RUN_BUDGET_S
+    run_deadline = time.monotonic() + FETCH_RUN_BUDGET_S
     for i, (name, f) in enumerate(selected):
-        t0 = time.time()
+        t0 = time.monotonic()
         budget = plan_timeout(name, run_deadline - t0)
         if budget <= 0:
             # 整轮墙钟耗尽：剩余表记为失败并停止，进程一定结束，且退出码反映缺口
@@ -1463,24 +1500,36 @@ def main():
             log(f"  ⛔ {name}: {err}")
             logger.error("run budget exhausted, skipping table %s", name)
         else:
-            ok, err = run_fetcher(name, f, _staging_conn, budget)
+            ok, err = run_fetcher(name, f, _staging_conn, budget, deadline=run_deadline)
         if not ok:
             log(f"  ❌ fetch_{name} 失败: {err}")
-            _MANIFEST["tables"].setdefault(name, {"status": "kept_previous", "reason": err})
-        # ok 仅表示 fetcher 是否抛异常/超时；验证闸门拒收走 kept_previous warning（后端推导）
+        entry = _MANIFEST["tables"].setdefault(name, {
+            "status": "kept_previous", "reason": err or "fetcher produced no validated table"})
+        # Transport success is not data success when the gate rejects the result.
+        ok = entry["status"] == "updated"
+        err = None if ok else err or entry["reason"]
         prev = prev_sources.get(name, {})
         _MANIFEST["sources"].append({
             "table": name,
             "channel": TABLE_CALENDAR.get(name, {}).get("channel", ""),
             "ok": ok,
-            "elapsed_s": round(time.time() - t0, 2),
+            "elapsed_s": round(time.monotonic() - t0, 2),
             "error": err[:200] if err else None,  # 截断防膨胀
             "consecutive_failures": 0 if ok else prev.get("consecutive_failures", 0) + 1,
             "last_success": ts if ok else prev.get("last_success"),
         })
+        log(f"REFRESH_STEP {i + 1}/{len(selected) + 1}")
         # 表间小停顿：连续 16 次抓取容易触发源站 WAF 限流（最后一张表不必等）
-        if i < len(selected) - 1 and time.time() < run_deadline:
-            time.sleep(FETCH_GAP_S)
+        if i < len(selected) - 1:
+            time.sleep(max(0.0, min(FETCH_GAP_S, run_deadline - time.monotonic())))
+
+    if not any(s["ok"] for s in _MANIFEST["sources"]):
+        discard_staging()
+        _MANIFEST["derived"] = "not_run"
+        _MANIFEST["committed"] = False
+        _MANIFEST["sources"] = list((prev_sources | {s["table"]: s for s in _MANIFEST["sources"]}).values())
+        write_manifest(_MANIFEST)
+        return compute_exit_code(_MANIFEST)
 
     conn = sqlite3.connect(staging)
 
@@ -1514,6 +1563,7 @@ def main():
         log(f"  ❌ 衍生计算失败，丢弃本轮 staging（保留上一份一致快照）: {e}")
         logger.error("derived recompute failed, staging DISCARDED (live DB unchanged): %s", e)
         _MANIFEST["derived"] = f"failed: {e}"
+        _MANIFEST["committed"] = False
         conn.close()
         discard_staging()
         write_manifest(_MANIFEST)     # 审计留痕：本轮为何没有落库
@@ -1528,6 +1578,7 @@ def main():
     # ④ atomic promote staging → live (production DB touched exactly once);
     # commit 前把旧 live 复制为 vintage（审计快照，供 diff_vintage 比对）
     vintage = commit_staging()
+    _MANIFEST["committed"] = True
     if vintage:
         _MANIFEST["vintage"] = f"data/vintages/{vintage.name}"
     # ⑤ audit trail

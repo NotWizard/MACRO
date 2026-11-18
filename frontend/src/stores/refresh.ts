@@ -25,8 +25,8 @@ export const useRefreshStore = defineStore('refresh', () => {
     try {
       const r = await api.getRefreshStatus()
       lastResult.value = { msg: r.msg, ts: r.ts }
-      running.value = !!r.busy
-      if (r.busy) kind.value = 'macro'
+      // The server may be busy with a CLI run (or a different tab) this
+      // client cannot subscribe to/cancel. Only stream() owns local running.
     } catch {
       // offline / backend down — don't crash onMounted
       lastResult.value = { msg: '后端未连接', ts: null }

@@ -32,6 +32,20 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe('refresh.stream', () => {
+  it('does not treat an external CLI refresh as a locally cancellable stream', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).endsWith('/refresh/status')) return new Response(JSON.stringify({
+        msg: '上次结果', ts: null, busy: true,
+      }))
+      if (String(url).endsWith('/sources/health')) return new Response(JSON.stringify({ status: 'green' }))
+      throw new Error('unexpected url ' + url)
+    })
+    const s = useRefreshStore()
+    await s.loadStatus()
+    expect(s.running).toBe(false)
+    expect(s.lastResult?.msg).toBe('上次结果')
+  })
+
   it('macro 路径：POST 拿 job_id → GET stream → progress+done → markRefreshed', async () => {
     fetchMock.mockImplementation((url: string, init?: RequestInit) => {
       if (String(url).endsWith('/session')) return Promise.resolve({ ok: true, status: 200, json: async () => ({ token: 'T' }), text: async () => '' } as Response)

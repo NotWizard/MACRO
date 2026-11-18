@@ -56,7 +56,7 @@ def _load_fetch_module():
     return mod
 
 
-def _money(n=500, start="1985-01-01"):
+def _money(n=500, start="1980-01-01"):
     """money_supply-shaped frame: unique month-start dates, in-range m2_yoy."""
     dates = pd.date_range(start, periods=n, freq="MS").strftime("%Y-%m-%d")
     return pd.DataFrame({"date": dates,
@@ -278,6 +278,13 @@ def test_pmi_sources_are_collapsed_to_one_row_per_month(tmp_path, monkeypatch):
     assert result.loc[result["date"] == "2012-05-01", "pmi_caixin"].iloc[0] == 48.7
     assert result.iloc[-1]["pmi_caixin"] == 52.1
     assert mod._MANIFEST["tables"]["pmi"]["status"] == "updated"
+    # A private PMI outage must neither block the official update nor erase
+    # the verified historical values of that private series.
+    monkeypatch.setattr(mod.ak, "macro_china_cx_pmi_yearly",
+                        lambda: (_ for _ in ()).throw(OSError("unavailable")))
+    retry = mod.fetch_pmi(conn)
+    assert retry.loc[retry["date"] == "2012-05-01", "pmi_caixin"].iloc[0] == 48.7
+    assert mod._MANIFEST["tables"]["pmi"]["status"] == "updated"
     conn.close()
 
 
@@ -304,7 +311,8 @@ def test_social_finance_primary_failure_keeps_published_history(tmp_path, monkey
     result = mod.fetch_social_finance(conn)
     assert len(result) == 60
     assert result["date"].is_unique
-    assert mod._MANIFEST["tables"]["social_finance"]["status"] == "updated"
+    assert mod._MANIFEST["tables"]["social_finance"]["status"] == "kept_previous"
+    pd.testing.assert_frame_equal(pd.read_sql("SELECT * FROM social_finance", conn), previous)
     conn.close()
 
 
@@ -448,6 +456,48 @@ def _patch_pipeline_io(mod, monkeypatch, live, staging, calls):
     fake_money_supply.__name__ = "fetch_money_supply"
     monkeypatch.setattr(mod, "fetch_money_supply", fake_money_supply)
     monkeypatch.setattr(sys, "argv", ["01_fetch_data.py"])
+
+
+def test_targeted_fetch_bypasses_calendar_and_rejected_latest_does_not_commit(tmp_path, monkeypatch):
+    mod = _load_fetch_module()
+    live, staging = tmp_path / "macro.db", tmp_path / "macro.db.staging"
+    _seed_live(live)
+    before = live.read_bytes()
+    calls = []
+    _patch_pipeline_io(mod, monkeypatch, live, staging, calls)
+    monkeypatch.setattr(mod, "should_fetch", lambda *a: pytest.fail("explicit table bypasses calendar"))
+    monkeypatch.setattr(sys, "argv", ["01_fetch_data.py", "--tables", "money_supply"])
+    def fetch_money_supply(conn):
+        mod.save_to_db(_money(499), "money_supply", conn)
+    monkeypatch.setattr(mod, "fetch_money_supply", fetch_money_supply)
+    assert mod.main() == 2
+    assert mod._MANIFEST["committed"] is False
+    assert mod._MANIFEST["sources"][0]["consecutive_failures"] == 1
+    assert "period regressed" in mod._MANIFEST["tables"]["money_supply"]["reason"]
+    assert calls == ["discard", "manifest"]
+    assert live.read_bytes() == before
+
+
+def test_ppi_uses_official_mom_and_drops_legacy_estimate(monkeypatch):
+    mod = _load_fetch_module()
+    conn = sqlite3.connect(":memory:")
+    dates = pd.date_range(end=pd.Timestamp.today().normalize().replace(day=1), periods=205, freq="MS")
+    previous = pd.DataFrame({"date": dates.strftime("%Y-%m-%d"), "ppi_yoy": 2.0, "ppi_mom": 9.9})
+    previous.to_sql("ppi", conn, index=False)
+    import nbs_release
+    date = previous["date"].iloc[-1]
+    y, m = date.split("-")[:2]
+    official = {"title": f"{y}年{int(m)}月份工业生产者出厂价格同比下降2.3% 环比持平",
+                "url": "https://www.stats.gov.cn/sj/zxfb/test.html"}
+    monkeypatch.setattr(nbs_release, "find_releases", lambda *a, **k: [official])
+    monkeypatch.setattr(mod, "_fetch_eastmoney", lambda *a, **k: previous[["date", "ppi_yoy"]].copy())
+    result = mod.fetch_ppi(conn)
+    assert result["ppi_mom"].notna().sum() == 1
+    assert result.iloc[-1]["ppi_mom"] == 0
+    assert result.iloc[-1]["ppi_yoy"] == -2.3
+    assert result.iloc[-1]["ppi_mom_source"] == official["url"]
+    assert mod._MANIFEST["tables"]["ppi"]["status"] == "updated"
+    conn.close()
 
 
 def _seed_live(live):

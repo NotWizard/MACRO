@@ -57,7 +57,7 @@ def test_exactly_10pct_outliers_pass():
 
 def test_nan_excluded_from_ratio():
     # 非空 120 中 11 越界 = 9.2% → 通过；NaN 行只占行数、不入分母
-    values = [99.0] * 11 + [2.0] * 109 + [np.nan] * 100
+    values = [99.0] * 11 + [np.nan] * 100 + [2.0] * 109
     ok, reason = validate(_df(values), "cpi")
     assert ok, reason
 

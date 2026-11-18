@@ -230,10 +230,11 @@ cd frontend && npm run dev
 ```bash
 .venv312/bin/python scripts/01_fetch_data.py     # 采集（默认按发布日历增量；走闸门管道：暂存→校验→原子切换→备份→manifest）
 .venv312/bin/python scripts/01_fetch_data.py --full  # 全量采集（绕过发布日历）
-.venv312/bin/python scripts/02_compute_derived.py  # 重算 derived_monthly / derived_quarterly
+.venv312/bin/python scripts/01_fetch_data.py --tables ppi pmi_detail  # 只重抓指定表
+.venv312/bin/python scripts/02_compute_derived.py  # 仅在不取数、单独重算时用
 ```
 
-> 首次启动若 `data/macro_data.db` 不存在，`run_app.sh` 会自动跑这两个脚本。
+> 首次建库或完整核验跑 `01_fetch_data.py --full`；01 已含衍生重算。页面「刷新数据」默认按发布窗口，不是全量。补数及退出状态以 [数据补充运行手册](docs/data-supplement-runbook.md) 为准。
 
 ---
 
@@ -248,7 +249,7 @@ cd frontend && npm run dev
 | 1 | `money_supply` | M0/M1/M2 | 月 |
 | 2 | `gdp` | GDP 绝对值 + 同比 | 季（累计季度解析：第1-2季度→Q2；年频用于美林/债务收入比）|
 | 3 | `cpi` | CPI 同比 + 环比 | 月 |
-| 4 | `ppi` | PPI 同比 | 月 |
+| 4 | `ppi` | PPI 同比；有国家统计局原文的实际环比 | 月 |
 | 5 | `pmi` | 官方/RatingDog（原财新）/非制造业/服务业 | 月 |
 | 5a | `pmi_detail` | NBS 制造业 PMI 生产、订单、采购、价格与库存分项（13 个滚动月）| 月 |
 | 6 | `leverage` | 宏观杠杆率（CNBS 分部门）| 季 |
@@ -459,7 +460,7 @@ pytest>=9.1.0,<10
 
 ### 环境变量
 
-`.env.example` 是模板（`.env` 已 gitignored）：`COMMENTARY_BASE_URL` / `COMMENTARY_API_KEY` / `COMMENTARY_MODEL`（AI 点评，三者同时非空才启用）、`REFRESH_TIMEOUT_S`（默认 300）、`HEALTH_STALE_DAYS`（默认 40）、`CORS_ORIGINS`、`CRCL_STARTUP_COLLECT`、`EXPAT_LIB_PATH`。仓库没有接 dotenv 自动加载，需 `set -a; source .env; set +a` 后再启动。
+`.env.example` 是模板（`.env` 已 gitignored）：`COMMENTARY_BASE_URL` / `COMMENTARY_API_KEY` / `COMMENTARY_MODEL`（AI 点评，三者同时非空才启用）、`REFRESH_TIMEOUT_S`（默认 1560 秒，含提交余量）、`HEALTH_STALE_DAYS`（默认 40）、`CORS_ORIGINS`、`CRCL_STARTUP_COLLECT`、`EXPAT_LIB_PATH`。仓库没有接 dotenv 自动加载，需 `set -a; source .env; set +a` 后再启动。
 
 ### 前端（`frontend/package.json`）
 

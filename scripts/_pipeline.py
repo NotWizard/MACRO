@@ -30,6 +30,7 @@ import sqlite3
 from datetime import date, datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -252,30 +253,35 @@ def validate(df, table, prev_distinct_dates=0, today=None):
         s = df[c].dropna()
         if len(s) and ((s < lo) | (s > hi)).mean() > 0.10:
             return False, f"column {c!r}: >10% of non-null values outside [{lo}, {hi}]"
-    # freshness gate (P-M7): a source can silently FREEZE — the newest date stops
-    # advancing while every other gate still passes. Tables that declare
-    # max_date_lag are rejected once their newest date falls more than that many
-    # days behind ``today`` (kept_previous → health lamp turns amber). A future /
-    # NaT newest date never trips it.
+    # Validate the entire grain before writing. A NULL key bypasses UNIQUE in
+    # SQLite and a future/NaT date must not mask a frozen source.
+    key = spec_key(table)
+    if not all(c in df for c in key):
+        return False, f"missing grain columns {key}"
+    dates = pd.to_datetime(df["date"], errors="coerce", format="ISO8601")
+    ref = pd.Timestamp(date.today() if today is None else today)
+    if df[key].isna().any().any() or dates.isna().any():
+        return False, "invalid date or null grain key"
+    if (dates > ref).any():
+        return False, "future date"
+    if any(not np.isfinite(df[c].dropna()).all() for c in required if c != "date"):
+        return False, "non-finite required value"
     max_lag = spec.get("max_date_lag")
-    if max_lag and "date" in df.columns:
-        newest = pd.to_datetime(df["date"], errors="coerce").max()
-        ref = pd.Timestamp(date.today() if today is None else today)
-        if pd.notna(newest):
+    if max_lag:
+        for col in (c for c in required if c != "date"):
+            newest = dates[df[col].notna()].max()
             lag_days = (ref - newest).days
             if lag_days > max_lag:
-                return False, (f"newest date {newest.date()} is {lag_days}d behind "
+                return False, (f"{col}: newest date {newest.date()} is {lag_days}d behind "
                                f"{ref.date()} > max_date_lag {max_lag}d (stale/frozen source)")
     # grain gate: the declared key must be unique. Duplicate keys are how the
     # live DB ended up with lpr 1536 rows / 154 dates and pmi 2 rows for
     # 2012-05 with different caixin values, which then forced order-dependent
     # drop_duplicates(keep="last") on every reader. Reject at the gate instead.
-    key = [c for c in spec_key(table) if c in df.columns]
-    if key:
-        dups = int(df.duplicated(subset=key).sum())
-        if dups:
-            first = df[df.duplicated(subset=key, keep=False)][key].head(1).to_dict("records")
-            return False, f"{dups} duplicate rows on key {key} (e.g. {first}) — grain violation"
+    normalized_keys = df[key].assign(date=dates)
+    dups = int(normalized_keys.duplicated().sum())
+    if dups:
+        return False, f"{dups} duplicate rows on key {key} — grain violation"
     # series gate: a multi-series table must not silently lose whole series
     # (house_price: 3 of 10 cities still clears min_rows and leaves the date set
     # intact, while replace-write would delete the other 7 cities' history)
@@ -443,7 +449,10 @@ def discard_staging(staging_path=STAGING_PATH):
 
 
 def write_manifest(manifest, path=MANIFEST_PATH):
-    Path(path).write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    path = Path(path)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(path)
 
 
 # ── derived recompute (folded in for raw+derived atomicity) ───────────────────

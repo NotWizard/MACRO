@@ -511,11 +511,9 @@ df_mom = ak.macro_china_cpi_monthly()
 
 ### PPI
 
-```python
-import akshare as ak
+项目使用东财 `RPT_ECONOMY_PPI.BASE_SAME` 获取长历史同比，最近 3 期优先取[国家统计局发布归档](https://www.stats.gov.cn/sj/zxfb/)标题明确公布的全国出厂价格同比与环比（`scripts/nbs_release.py`）。2026-11-18 只读实测：归档返回 2026 年 8、9、10 月三期，`ppi_mom_source` 保存链接；[10 月原文](https://www.stats.gov.cn/sj/zxfb/202611/t20261109_1965794.html)环比 +0.7%。
 
-df = ak.macro_china_ppi_yearly()
-```
+累计保留有来源的实际环比；不从同比重建环比。镜像或归档单独失败不会擦除已留存官方值；两源均无可用结果时保留旧表，见 [取数手册](data-supplement-runbook.md)。
 
 ### PMI
 
@@ -850,10 +848,10 @@ A: 部分接口需要积分，详见：https://tushare.pro/document/1?doc_id=108
 
 **接口地址**：`https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/{year}/all?type=daily_treasury_yield_curve&field_tdr_date_value={year}&page&_format=csv`
 
-**返回字段**：`Date,"1 Mo",...,"3 Mo","6 Mo","1 Yr",...`（MM/DD/YYYY）。按年取数，跨年需拼接两年文件。`api.fiscal.treasury.gov` 的 fiscaldata JSON API 实测返回空，弃用。
+**返回字段**：`Date,"1 Mo",...,"3 Mo","6 Mo","1 Yr",...`（MM/DD/YYYY）。先取当年再取上年；失败按年隔离，不因上年文件失败丢掉当年。旧版 fiscaldata JSON 路径曾实测返回空，当前未重新启用。
 
 ### 数据源：AKShare 美股日线（主）+ Yahoo Finance（备）
 
 **AKShare**：`ak.stock_us_daily(symbol='CRCL')`（新浪端点，偶发不可达）。
-**yfinance 备用**：`yf.Ticker('CRCL').history(period='max')`；估值快照 `yf.Ticker('CRCL').info`（marketCap / trailingPE / forwardPE / priceToSalesTrailing12Months / fiftyTwoWeek*）。
+**yfinance 备用**：`yf.Ticker('CRCL').history(period='max', auto_adjust=False)`；估值快照 `yf.Ticker('CRCL').info`（marketCap / trailingPE / forwardPE / priceToSalesTrailing12Months / fiftyTwoWeek*）。无有效行情时转备用源；空估值不覆盖旧快照。
 **口径提示**：Yahoo trailingPE 含一次性项目，与 WSJ 等数据商差异大；看方向（前瞻−TTM 价差）不看绝对值。

@@ -51,7 +51,7 @@ def hermetic(tmpdb, monkeypatch):
     calls: list[str] = []
     for name in _COLLECTORS:
         monkeypatch.setattr(crcl_collect, name,
-                            lambda run_id, _n=name: (calls.append(_n), 0)[1])
+                            lambda run_id, _n=name: (calls.append(_n), 1)[1])
     monkeypatch.setattr(crcl_collect, "collect_valuation_snapshot", lambda run_id: True)
     monkeypatch.setattr(crcl_collect, "update_circ_snapshot", lambda run_id: None)
     monkeypatch.setattr(crcl_alerts, "evaluate", lambda run_id: [])
@@ -78,7 +78,7 @@ def test_concurrent_collects_run_exactly_once(hermetic, monkeypatch):
         calls.append("slow")
         entered.set()
         release.wait(5)
-        return 0
+        return 1
 
     monkeypatch.setattr(crcl_collect, "collect_usdc_circ", _slow)
     box: dict = {}
@@ -105,6 +105,25 @@ def test_crcl_lock_is_a_different_file_from_the_refresh_lock(tmp_path, monkeypat
         assert locking.is_running(crcl_lock) is False   # independent domain
         with locking.crcl_collect_lock(crcl_lock):      # acquirable regardless
             assert locking.is_running(crcl_lock) is True
+
+
+def test_empty_source_and_valuation_do_not_erase_data_or_report_full_success(tmpdb, monkeypatch):
+    crcl_db.upsert_points("usdc_circ", [("2026-08-01", 123.0)])
+    crcl_db.set_snapshot("valuation", {"price": 70.0})
+    original = crcl_db.get_snapshots()["valuation"]
+    monkeypatch.setattr(crcl_collect.httpx, "get",
+                        lambda *a, **k: types.SimpleNamespace(raise_for_status=lambda: None, json=lambda: []))
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Ticker=lambda _: types.SimpleNamespace(info={})))
+    for name in _COLLECTORS[1:]:
+        monkeypatch.setattr(crcl_collect, name, lambda _: 1)
+    monkeypatch.setattr(crcl_alerts, "evaluate", lambda _: [])
+    result = crcl_collect.collect_all()
+    assert result["status"] == "ok"
+    assert "已更新 4 项" in result["msg"] and "估值快照" in result["msg"]
+    assert {s["source"] for s in result["steps"] if s["status"] == "error"} == {
+        "defillama_usdc", "yfinance_valuation"}
+    assert crcl_db.get_series("usdc_circ")[-1]["value"] == 123.0
+    assert crcl_db.get_snapshots()["valuation"] == original
 
 
 # ── enforceable timeout for uncontrollable third-party calls ────────────────
@@ -145,10 +164,11 @@ def test_hung_akshare_does_not_pin_the_thread(tmpdb, monkeypatch):
 
 
 # ── startup collection cannot stampede a user-triggered one ─────────────────
-def test_startup_collection_skips_when_a_collect_is_running(hermetic, caplog):
+def test_startup_collection_skips_when_a_collect_is_running(hermetic, caplog, monkeypatch):
     """With the lock held, the startup hook's thread reports "skip" and collects
     nothing (pre-fix it fired an unguarded second full collection)."""
     lock, calls = hermetic
+    monkeypatch.setenv("CRCL_STARTUP_COLLECT", "1")
     with locking.crcl_collect_lock(lock), caplog.at_level(logging.INFO):
         crcl_collect.schedule_startup_collection()
         for _ in range(80):    # ≤2s, exits as soon as the skip is logged

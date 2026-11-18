@@ -123,3 +123,39 @@ def test_run_refresh_reports_busy_when_locked(tmp_path, monkeypatch):
     with locking.refresh_lock(lock):        # hold it from the test process
         result = refresh.run_refresh()
     assert result["status"] == "busy"
+
+
+def test_partial_commit_reports_updated_and_kept_tables(tmp_path, monkeypatch):
+    import json
+    from backend.app.core import commentary
+
+    manifest = tmp_path / "last_run.json"
+    manifest.write_text(json.dumps({"committed": True, "derived": "recomputed", "tables": {
+        "cpi": {"status": "updated"}, "ppi": {"status": "kept_previous"}}}))
+    monkeypatch.setattr(refresh, "MANIFEST_PATH", manifest)
+    monkeypatch.setattr(refresh, "refresh_lock",
+                        lambda: locking.refresh_lock(tmp_path / ".refresh.lock"))
+    monkeypatch.setattr(refresh, "_build_cmd", lambda full: [
+        sys.executable, "-c",
+        "from pathlib import Path; import sys; p = Path(sys.argv[1]); "
+        "p.write_text(p.read_text() + ' '); print('✅ substep'); print('REFRESH_STEP 1/2'); raise SystemExit(2)",
+        str(manifest),
+    ])
+    callbacks = []
+    monkeypatch.setattr(refresh, "clear_all_caches", lambda: callbacks.append("cache"))
+    monkeypatch.setattr(refresh, "_load_full", lambda _: None)
+    monkeypatch.setattr(commentary, "mark_stale_and_regenerate", lambda: callbacks.append("commentary"))
+    progress = []
+    result = refresh.run_refresh(progress.append)
+    assert result["status"] == "ok"
+    assert result["updated"] == ["cpi"] and result["kept_previous"] == ["ppi"]
+    assert callbacks == ["cache", "commentary"]
+    assert progress == [0.0, 0.5, 1.0]
+
+    data = json.loads(manifest.read_text())
+    manifest.write_text(json.dumps(data | {"committed": False, "derived": "failed: test"}))
+    callbacks.clear()
+    result = refresh.run_refresh()
+    assert result["status"] == "error" and result["updated"] == []
+    assert "未落库" in result["msg"]
+    assert callbacks == []
