@@ -57,20 +57,22 @@ const dataAsOf = computed(() => {
 })
 
 // ── KPI：最新值 + 较上期 delta ───────────────────────────────────────────────
-function latestWithDelta(col: string, suffix: string): { value: number | null; delta: TileDelta | null } {
-  let latest: number | null = null
-  let prev: number | null = null
+function latestWithDelta(col: string, suffix: string): { value: number | null; period: string | null; delta: TileDelta | null } {
+  let latest: { value: number; period: string } | null = null
+  let prev: { value: number; period: string } | null = null
   for (const r of kpiDm.value) {           // kpiDm is latest-first
     const v = r[col]
-    if (typeof v !== 'number') continue
-    if (latest === null) latest = v
-    else { prev = v; break }
+    if (typeof v !== 'number' || typeof r.date !== 'string') continue
+    const observation = { value: v, period: r.date.slice(0, 7) }
+    if (latest === null) latest = observation
+    else { prev = observation; break }
   }
-  if (latest === null || prev === null) return { value: latest, delta: null }
-  const d = latest - prev
-  if (Math.abs(d) < 1e-9) return { value: latest, delta: { text: `较上期 持平`, dir: 'flat' } }
+  if (latest === null || prev === null) return { value: latest?.value ?? null, period: latest?.period ?? null, delta: null }
+  const d = latest.value - prev.value
+  const label = `较 ${prev.period}`
+  if (Math.abs(d) < 1e-9) return { ...latest, delta: { text: `${label} 持平`, dir: 'flat' } }
   // 方向只表达数值增减，不预设好坏（CPI 升≠利好；剪刀差升≠利空）——避免误导
-  return { value: latest, delta: { text: `较上期 ${d > 0 ? '+' : ''}${d.toFixed(1)}${suffix}`, dir: d > 0 ? 'up' : 'down' } }
+  return { ...latest, delta: { text: `${label} ${d > 0 ? '+' : ''}${d.toFixed(1)}${suffix}`, dir: d > 0 ? 'up' : 'down' } }
 }
 
 const FRAMEWORKS = ['merrill', 'credit', 'inventory', 'debt'] as const
@@ -168,7 +170,7 @@ const tiles = [
   { label: 'PMI 官方', col: 'pmi_official', tip: `国家统计局制造业采购经理指数，50 为荣枯分界线，>50 表示扩张。
 
 取数：AKShare macro_china_pmi_yearly → pmi.pmi_official（原始）→ 合并于 derived_monthly.pmi_official → 取最近一期有效值。` },
-  { label: '财新 PMI', col: 'pmi_caixin', tip: `财新/S&P 制造业 PMI，样本偏中小及沿海企业，公认领先官方 PMI，同为 50 荣枯线。
+  { label: 'RatingDog PMI', col: 'pmi_caixin', tip: `RatingDog / S&P Global 制造业 PMI（原财新），与官方 PMI 调查样本不同，50 为荣枯线。
 
 取数：AKShare macro_china_cx_pmi_yearly → pmi.pmi_caixin（原始）→ 合并于 derived_monthly.pmi_caixin → 取最近一期有效值。` },
   { label: 'M2-M1 剪刀差', col: 'm2_m1_spread', suffix: 'pp', tip: `M2 同比减 M1 同比，衡量资金活化程度。剪刀差扩大（正值）常预示企业活期存款走弱、需求疲软。
@@ -194,13 +196,13 @@ const fmtCorr = (k: string) => lagNum(k) !== null ? lagNum(k)!.toFixed(2) : '—
 </script>
 
 <template>
-  <div class="p-6 space-y-5">
-    <header class="flex items-end justify-between">
+  <div class="p-4 sm:p-6 space-y-5">
+    <header class="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
       <div>
         <h1 class="text-xl font-bold text-text tracking-tight">综合概览</h1>
         <p class="text-xs text-text-3 mt-1">关键宏观指标 + 综合信号</p>
       </div>
-      <div v-if="dataAsOf" class="text-[11px] text-text-4">数据截至 <span class="tnum text-text-3">{{ dataAsOf }}</span></div>
+      <div v-if="dataAsOf" class="text-[11px] text-text-3">卡片最新观测月 <span class="tnum">{{ dataAsOf }}</span> · 各指标以卡片为准</div>
     </header>
 
     <!-- 取数状态由 PageState 统一渲染：后端不可达 ≠ 数据库暂无数据 -->
@@ -233,11 +235,12 @@ const fmtCorr = (k: string) => lagNum(k) !== null ? lagNum(k)!.toFixed(2) : '—
               <div v-if="macro" class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-text-3">
                 <span v-if="macro.pressure != null">压力 <b class="text-text-2 tnum">{{ macro.pressure.toFixed(1) }}</b></span>
                 <span>置信度 <b class="text-text-2 tnum">{{ macro.confidence.toFixed(0) }}%</b></span>
-                <span>覆盖 <b class="text-text-2 tnum">{{ macro.coverage.toFixed(0) }}%</b></span>
+                <span>可用权重 <b class="text-text-2 tnum">{{ macro.coverage.toFixed(0) }}%</b><ChartTip text="有可用观测并纳入评分的有效权重比例，不表示所有指标都已更新到同一个月。" label="可用权重说明" /></span>
+                <span v-if="macro.as_of">评分基准月 <b class="text-text-2 tnum">{{ macro.as_of.slice(0, 7) }}</b></span>
               </div>
             </div>
             <!-- 刻度尺：0=明显收缩，50=中性，100=强扩张 -->
-            <div class="flex-1 min-w-[240px] max-w-md" aria-hidden="true">
+            <div class="w-full sm:w-auto sm:flex-1 sm:min-w-[240px] max-w-md" aria-hidden="true">
               <div class="signal-track relative h-2 rounded-full">
                 <span class="signal-tick absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-px h-3" />
                 <span
@@ -252,7 +255,7 @@ const fmtCorr = (k: string) => lagNum(k) !== null ? lagNum(k)!.toFixed(2) : '—
             </div>
           </div>
           <div class="mt-4 pt-4 space-y-3">
-            <div class="grid grid-cols-1 sm:grid-cols-5 gap-2">
+            <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2">
               <div v-for="c in macroComponents" :key="c.key" class="px-2.5 py-2 rounded-lg bg-surface/70 border border-border/70">
                 <div class="flex items-center justify-between gap-1 text-[10px] text-text-3">
                   <span class="inline-flex items-center whitespace-nowrap">
@@ -271,6 +274,7 @@ const fmtCorr = (k: string) => lagNum(k) !== null ? lagNum(k)!.toFixed(2) : '—
                     {{ c.contribution >= 0 ? '+' : '' }}{{ c.contribution.toFixed(1) }}
                   </span>
                 </div>
+                <div v-if="c.as_of" class="mt-1 text-[10px] text-text-3 tnum">最新观测 {{ c.as_of.slice(0, 7) }}</div>
               </div>
             </div>
             <div v-if="fwChips.length" class="flex flex-wrap items-center gap-2">
@@ -296,6 +300,7 @@ const fmtCorr = (k: string) => lagNum(k) !== null ? lagNum(k)!.toFixed(2) : '—
             v-for="t in tiles" :key="t.col" :label="t.label"
             :value="kpiComputed.get(t.col)?.value ?? null"
             :suffix="t.suffix" :tip="t.tip"
+            :period="kpiComputed.get(t.col)?.period"
             :deltas="kpiComputed.get(t.col)?.delta ? [kpiComputed.get(t.col)!.delta!] : []"
           />
         </div>
@@ -326,16 +331,16 @@ const fmtCorr = (k: string) => lagNum(k) !== null ? lagNum(k)!.toFixed(2) : '—
           </div>
           <ol role="list" class="space-y-1">
             <li v-for="r in historyRows" :key="r.ts"
-                class="grid grid-cols-[5.5rem_2.5rem_1fr] items-center gap-3 px-2.5 py-1.5 rounded-lg transition-colors"
+                class="grid grid-cols-[auto_1fr] sm:grid-cols-[5.5rem_2.5rem_minmax(0,1fr)] items-center gap-x-3 gap-y-1 px-2.5 py-1.5 rounded-lg transition-colors"
                 :class="r.flips.length ? 'ring-1 ring-warn/40 bg-warn/5' : 'hover:bg-white/[0.02]'"
                 :tabindex="r.flips.length ? 0 : undefined"
                 :aria-label="rowAria(r)">
               <span class="text-xs text-text-3 tnum">{{ r.ts.slice(0, 10) }}</span>
-              <span class="text-xs font-bold text-center tnum"
+              <span class="text-xs font-bold text-right sm:text-center tnum"
                     :class="r.macro_score != null && r.macro_score >= 55 ? 'text-up' : r.macro_score != null && r.macro_score <= 45 ? 'text-down' : 'text-text-2'">
                 {{ historyScore(r) }}
               </span>
-              <span class="flex flex-wrap gap-1">
+              <span class="col-span-2 sm:col-span-1 flex flex-wrap gap-1">
                 <span v-for="f in FRAMEWORKS" :key="f"
                       class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border bg-surface text-[11px] text-text-2"
                       :class="isFlipped(r, f) ? 'border-warn/60 text-text' : 'border-border'">

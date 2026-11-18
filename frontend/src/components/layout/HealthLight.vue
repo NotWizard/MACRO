@@ -49,7 +49,7 @@ function fullRefresh() {
 </script>
 
 <template>
-  <div class="relative">
+  <div class="lg:relative">
     <button
       ref="triggerRef"
       class="p-1.5 rounded transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
@@ -66,7 +66,7 @@ function fullRefresh() {
       role="dialog"
       aria-label="数据源健康详情"
       tabindex="-1"
-      class="absolute top-full left-0 mt-2 w-[460px] max-w-[calc(100vw-3rem)] max-h-[70vh] overflow-y-auto rounded-lg border border-border-hi bg-card shadow-xl p-3 z-[120] outline-none"
+      class="absolute top-full inset-x-3 mt-2 lg:left-0 lg:right-auto lg:w-[460px] max-h-[70vh] overflow-y-auto rounded-lg border border-border-hi bg-card shadow-xl p-3 z-[120] outline-none"
       @keydown.esc="close"
     >
       <div class="flex items-baseline justify-between mb-2">
@@ -76,7 +76,7 @@ function fullRefresh() {
 
       <div
         v-for="s in refresh.health?.sources ?? []" :key="s.table"
-        class="flex items-center gap-2 py-1 border-b border-border last:border-0 text-[11px]"
+        class="flex flex-wrap items-center gap-x-2 gap-y-1 py-1 border-b border-border last:border-0 text-[11px]"
       >
         <span class="font-mono text-text w-28 shrink-0">{{ s.table }}</span>
         <span class="text-text-3 w-24 shrink-0">{{ s.channel }}</span>

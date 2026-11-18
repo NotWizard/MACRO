@@ -121,10 +121,10 @@ watch(() => refresh.lastRefreshedAt, pull)
 
 <template>
   <div class="bg-card border border-border rounded-xl p-4 transition-colors hover:border-border-hi">
-    <div class="flex items-center justify-between mb-2">
-      <div class="flex items-center gap-2">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+      <div class="flex flex-wrap items-center gap-2">
         <div class="text-xs text-text-3 uppercase tracking-wide">AI 宏观分析评论</div>
-        <span v-if="data.status === 'ok' && data.stale" class="text-xs px-1.5 py-0.5 rounded bg-warn-soft text-warn">数据已更新</span>
+        <span v-if="data.stale" class="text-xs px-1.5 py-0.5 rounded bg-warn-soft text-warn">历史分析</span>
       </div>
       <div class="flex items-center gap-1.5">
         <button
@@ -132,7 +132,7 @@ watch(() => refresh.lastRefreshedAt, pull)
           :disabled="!reportReady"
           :title="reportReady ? '打开完整宏观报告' : (data.report_msg || '本批次暂无全文报告')"
           @click="router.push('/overview/report')"
-        >查看全文</button>
+        >{{ data.stale ? '查看旧版报告' : '查看全文' }}</button>
         <button
           class="text-xs px-2.5 py-1 rounded-lg border border-border hover:border-border-hi text-text-2 transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
           :disabled="loading || data.status === 'generating'"
@@ -162,6 +162,9 @@ watch(() => refresh.lastRefreshedAt, pull)
       </div>
 
       <!-- overall commentary (ok，或 generating 时的上一版)；MdLiteText 渲染 **要点** 加粗结构 -->
+      <div v-else-if="data.stale" class="text-sm text-text-2">
+        上一版分析与当前数据或配置不一致。{{ regenerating ? '新版正在生成。' : '点击「重新分析」生成本期解读。' }}
+      </div>
       <div v-else class="text-sm text-text-2 leading-relaxed"><MdLiteText :text="data.overall" /></div>
     </div>
 
@@ -169,10 +172,10 @@ watch(() => refresh.lastRefreshedAt, pull)
     <div v-if="(data.status === 'ok' || regenerating) && data.provenance" class="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-text-3">
       <span v-if="data.provenance.model">{{ data.provenance.model }}</span>
       <span v-if="data.provenance.generated_at">· 生成于 {{ data.provenance.generated_at }}</span>
-      <span v-if="data.provenance.data_as_of?.derived_monthly">· 数据截至 {{ data.provenance.data_as_of.derived_monthly }}</span>
+      <span v-if="data.provenance.data_as_of?.macro_score">· 评分基准月 {{ data.provenance.data_as_of.macro_score }}</span>
       <span v-if="data.provenance.template_hash">· tpl {{ data.provenance.template_hash.slice(0, 8) }}</span>
       <span v-if="data.provenance.profile">· {{ data.provenance.profile }}</span>
-      <span v-if="regenerating" class="text-accent animate-pulse">· 正在重新生成，以上为上一版</span>
+      <span v-if="regenerating && !data.stale" class="text-accent animate-pulse">· 正在重新生成，以上为上一版</span>
     </div>
     <div v-if="pollNote" role="status" aria-live="polite" class="mt-2 text-[11px] text-text-4">{{ pollNote }}</div>
   </div>

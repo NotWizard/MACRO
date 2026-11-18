@@ -94,6 +94,8 @@ describe('refresh.stream', () => {
     await s.stream(false, 'crcl')
     expect(s.crclRefreshedAt).toBeGreaterThan(crclBefore)
     expect(s.lastRefreshedAt).toBe(macroBefore)   // macro 不受影响
+    expect(s.lastCrclResult?.msg).toBe('crcl done')
+    expect(s.lastResult).toBeNull()
   })
 
   it('job_id=null（池饱和）→ 只记 msg，不去订阅 stream', async () => {

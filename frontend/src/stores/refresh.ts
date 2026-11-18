@@ -16,6 +16,7 @@ export const useRefreshStore = defineStore('refresh', () => {
   const progress = ref(0)          // 0..1
   const kind = ref<RefreshKind>('macro')   // which dataset the current run touches
   const lastResult = ref<{ msg: string; ts: string | null } | null>(null)
+  const lastCrclResult = ref<typeof lastResult.value>(null)
   const lastRefreshedAt = ref(0)   // macro: bumped on SSE done; pages refetch by depending on it
   const crclRefreshedAt = ref(0)   // crcl: same contract, separate dataset
   const health = ref<SourcesHealth | null>(null)
@@ -62,11 +63,12 @@ export const useRefreshStore = defineStore('refresh', () => {
     running.value = true
     kind.value = k
     progress.value = 0
+    const result = k === 'crcl' ? lastCrclResult : lastResult
     try {
       const started = k === 'crcl' ? await api.triggerCrclRefresh() : await api.triggerRefresh(full)
       if (!started.job_id) {
         // busy / pool saturated — the backend already said why in msg
-        lastResult.value = { msg: started.msg ?? '刷新未启动', ts: started.ts ?? null }
+        result.value = { msg: started.msg ?? '刷新未启动', ts: started.ts ?? null }
         return
       }
       const base = k === 'crcl' ? '/crcl/refresh/stream' : '/refresh/stream'
@@ -75,7 +77,7 @@ export const useRefreshStore = defineStore('refresh', () => {
         signal: abortController.signal,
       })
       if (!resp.ok || !resp.body) {
-        lastResult.value = { msg: `刷新失败: HTTP ${resp.status}`, ts: null }
+        result.value = { msg: `刷新失败: HTTP ${resp.status}`, ts: null }
         return
       }
       const reader = resp.body.getReader()
@@ -97,7 +99,7 @@ export const useRefreshStore = defineStore('refresh', () => {
             if (payload.progress !== undefined) progress.value = payload.progress
             if (payload.done) {
               sawDone = true
-              lastResult.value = {
+              result.value = {
                 msg: payload.result?.msg ?? (k === 'crcl' ? 'CRCL 采集完成' : '刷新完成'),
                 ts: payload.result?.ts ?? null,
               }
@@ -109,14 +111,14 @@ export const useRefreshStore = defineStore('refresh', () => {
       }
       // 流被对端提前关闭（未收到 done）——不谎报成功，但仍让页面重取已落库的部分
       if (!sawDone) {
-        lastResult.value = { msg: '采集流意外结束，结果可能不完整', ts: null }
+        result.value = { msg: '采集流意外结束，结果可能不完整', ts: null }
         markRefreshed(k)
       }
     } catch (e) {
       if ((e as Error).name === 'AbortError') {
-        lastResult.value = { msg: '刷新已取消', ts: null }
+        result.value = { msg: '刷新已取消', ts: null }
       } else {
-        lastResult.value = { msg: `刷新异常: ${(e as Error).message}`, ts: null }
+        result.value = { msg: `刷新异常: ${(e as Error).message}`, ts: null }
       }
     } finally {
       running.value = false
@@ -129,7 +131,7 @@ export const useRefreshStore = defineStore('refresh', () => {
   }
 
   return {
-    running, progress, kind, lastResult, lastRefreshedAt, crclRefreshedAt, health,
+    running, progress, kind, lastResult, lastCrclResult, lastRefreshedAt, crclRefreshedAt, health,
     loadStatus, loadHealth, stream, cancel,
   }
 })

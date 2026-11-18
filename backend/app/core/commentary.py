@@ -26,6 +26,7 @@ import logging
 import sqlite3
 import threading
 from datetime import datetime
+from functools import lru_cache
 
 from analysis.cycle_credit import classify_credit
 from analysis.cycle_debt import classify_debt
@@ -34,7 +35,7 @@ from analysis.cycle_merrill import classify_merrill
 from analysis.real_estate import analyze_real_estate
 from analysis.signals import compute_signals
 from backend.app.core import ai_client, ai_config
-from backend.app.core.db import DB_PATH, _load_full, connect
+from backend.app.core.db import DB_PATH, _db_version, _load_full, connect
 
 COMMENTARY_TABLE = "commentary"
 REPORT_SECTION = "report"
@@ -124,6 +125,15 @@ def _r(x):
     return None if v != v else round(v, 2)
 
 
+def _latest_observation(table: str, period_key: str, anchor: str, *fields: str) -> dict:
+    frame = _load_full(table).reindex(columns=["date", anchor, *fields])
+    data = frame.dropna(subset=["date", anchor])
+    if data.empty:
+        return {}
+    row = data.iloc[-1]
+    return {period_key: str(row["date"])[:7], **{k: _r(row[k]) for k in (anchor, *fields)}}
+
+
 def _sec_merrill() -> dict:
     df = classify_merrill(str(DB_PATH))   # 年频，「上期」= 上一年
     last = df.iloc[-1]
@@ -132,7 +142,9 @@ def _sec_merrill() -> dict:
             "gdp_yoy": _r(last["gdp_yoy"]),
             "gdp_yoy_prev": None if prev is None else _r(prev["gdp_yoy"]),
             "cpi_yoy": _r(last["cpi_yoy"]),
-            "cpi_yoy_prev": None if prev is None else _r(prev["cpi_yoy"])}
+            "cpi_yoy_prev": None if prev is None else _r(prev["cpi_yoy"]),
+            **_latest_observation("domestic_demand", "employment_month", "unemployment_rate", "unemployment_31_city"),
+            **_latest_observation("derived_monthly", "price_mom_month", "cpi_mom", "ppi_mom")}
 
 
 def _sec_credit() -> dict:
@@ -141,7 +153,8 @@ def _sec_credit() -> dict:
     return {"phase": str(last["phase"]),
             "m2_yoy": _r(last["m2_yoy"]),
             "m2_yoy_delta": _r(df["m2_yoy"].diff(1).iloc[-1]),
-            "credit_impulse": _r(last["credit_impulse"])}
+            "credit_impulse": _r(last["credit_impulse"]),
+            **_latest_observation("derived_monthly", "loan_month", "new_rmb_loan", "loan_yoy", "loan_yoy_change")}
 
 
 def _sec_inventory() -> dict:
@@ -186,8 +199,11 @@ _BUILDERS = {"merrill": _sec_merrill, "credit": _sec_credit,
              "real_estate": _sec_real_estate, "fiscal_external": _sec_fiscal_external}
 
 _FIELDS = {
-    "merrill": ("phase", "gdp_yoy", "gdp_yoy_prev", "cpi_yoy", "cpi_yoy_prev"),
-    "credit": ("phase", "m2_yoy", "m2_yoy_delta", "credit_impulse"),
+    "merrill": ("phase", "gdp_yoy", "gdp_yoy_prev", "cpi_yoy", "cpi_yoy_prev",
+                "employment_month", "unemployment_rate", "unemployment_31_city",
+                "price_mom_month", "cpi_mom", "ppi_mom"),
+    "credit": ("phase", "m2_yoy", "m2_yoy_delta", "credit_impulse",
+               "loan_month", "new_rmb_loan", "loan_yoy", "loan_yoy_change"),
     "inventory": ("phase", "pmi_official", "ip_yoy"),
     "debt": ("phase", "household", "non_fin_corp", "gov_total",
              "household_change_4q", "non_fin_corp_change_4q", "gov_change_4q"),
@@ -257,6 +273,8 @@ DEFAULT_TEMPLATES = {
         "定义增长方向，以 CPI 同比相对 2% 定义通胀方向，四象限为复苏/过热/滞胀/衰退。"
         "快照字段：phase（当前阶段）、gdp_yoy/gdp_yoy_prev（本期与上年同期 GDP 同比 %）、"
         "cpi_yoy/cpi_yoy_prev（本期与上年同期 CPI 同比 %）。"
+        "employment_month 对应全国及 31 城调查失业率（unemployment_rate、unemployment_31_city，%）；"
+        "price_mom_month 对应 CPI/PPI 环比（cpi_mom、ppi_mom，%）。这些月度观测用作交叉验证，不能代替时钟坐标。"
         "写作结构：先点明当前阶段判定及两轴取值；再说明相对上期的边际迁移方向；"
         "若取值与阶段含义存在张力（如增长仍在趋势之上但通胀逼近阈值），指出并解释；"
         "末句给出该阶段在框架内的标准含义（如复苏=增长升+通胀降）。"
@@ -268,6 +286,8 @@ DEFAULT_TEMPLATES = {
         "（信贷脉冲）刻画货币条件松紧，脉冲>0 且上行=宽松，<0 且下行=紧缩，其余=中性。"
         "快照字段：phase（当前阶段）、m2_yoy（M2 同比 %）、m2_yoy_delta（环比变化 pp）、"
         "credit_impulse（信贷脉冲，M2 同比−12 月均线，pp）。"
+        "loan_month 是新增贷款观察月，new_rmb_loan、loan_yoy_change 分别为当月额与同比金额差（亿元）。"
+        "loan_yoy 为同比百分比；基数非正时为 null，只用金额差说明多增或少增，不从负基数反推比例。"
         "写作结构：点明阶段与 M2 同比取值；用脉冲的符号与方向解释判定依据；"
         "若脉冲与阶段存在张力（如脉冲为正但趋势走弱），指出矛盾；末句说明该货币条件对实体融资的含义。"
         "输出格式：按上述结构分 3-4 行，每行一个要点，以「**核心判断**」开头"
@@ -837,7 +857,31 @@ def _latest_batch(conn: sqlite3.Connection) -> dict:
         return _empty()
     rows = conn.execute(
         f"SELECT * FROM {COMMENTARY_TABLE} WHERE ts = ?", (ts,)).fetchall()
-    return _batch_to_dict(rows)
+    batch = _batch_to_dict(rows)
+    if not batch["stale"]:
+        # Compare what the model actually saw. A refresh can revise the same
+        # observation month, and CLI/supplement swaps don't run the API hook.
+        saved = _saved_snapshot(rows[0])
+        try:
+            batch["stale"] = not saved or saved != _live_snapshot(str(DB_PATH), _db_version())
+        except Exception:
+            _log.exception("无法核对历史评论的数据快照")
+            batch["stale"] = True
+    return batch
+
+
+@lru_cache(maxsize=4)
+def _live_snapshot(_path: str, _version: tuple) -> dict:
+    """Reuse the input snapshot between polls, keyed by the live DB version."""
+    return build_section_snapshot()
+
+
+def _saved_snapshot(row: sqlite3.Row) -> dict:
+    try:
+        snapshot = json.loads(row["phase_snapshot"])
+        return snapshot if isinstance(snapshot, dict) else {}
+    except (ValueError, TypeError):
+        return {}
 
 
 def _append_report(ts: str, snapshot: dict, report_text: str,
@@ -886,6 +930,9 @@ def _batch_to_dict(rows: list[sqlite3.Row]) -> dict:
             raise ValueError
     except Exception:
         as_of = {"derived_monthly": first["data_as_of"]}
+    score = _saved_snapshot(first).get("macro_score")
+    if isinstance(score, dict) and isinstance(score.get("as_of"), str):
+        as_of["macro_score"] = score["as_of"][:7]
     return {"status": "ok", "stale": stale, "overall": overall, "sections": sections,
             "report": report, "report_status": "ready" if report else "missing",
             "report_msg": None if report else "本批次暂无全文报告",

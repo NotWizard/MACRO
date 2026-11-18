@@ -89,7 +89,7 @@ class CrclEventsFile(BaseModel):
 def overview():
     """KPI 区数据：估值快照 + 流通量快照 + 告警汇总 + 最近采集状态。"""
     snaps = crcl_db.get_snapshots()
-    rule_status = crcl_db.get_rule_status()
+    rule_status = crcl_alerts.current_rule_status()
     triggered = [
         {"rule": r, **s}
         for r, s in rule_status.items()
@@ -188,7 +188,7 @@ def fundamentals():
         logger.error("[crcl] fundamentals 文件读取/解析失败 (error_id=%s): %r", eid, e)
         return {"error": f"文件读取/解析失败（error_id={eid}）", "error_id": eid}
     try:
-        crcl_alerts.FundamentalsFile.model_validate(raw)
+        validated = crcl_alerts.FundamentalsFile.model_validate(raw)
     except ValidationError as e:
         detail = crcl_alerts.format_validation_error(e)
         logger.error("[crcl] fundamentals schema 校验失败: %s", detail)
@@ -196,13 +196,15 @@ def fundamentals():
             "error": f"数据校验失败: {detail}",
             "errors": crcl_alerts.validation_error_details(e),
         }
+    for item, quarter in zip(raw.get("quarters", []), validated.quarters):
+        item["adjusted_nonreserve_share_pct"] = crcl_alerts.adjusted_nonreserve_share(quarter)
     return raw
 
 
 @router.get("/alerts")
 def alerts():
     """告警规则当前状态 + 触发历史。"""
-    rule_status = crcl_db.get_rule_status()
+    rule_status = crcl_alerts.current_rule_status()
     rules = [
         {
             "rule": r,

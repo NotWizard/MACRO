@@ -513,6 +513,7 @@ def test_ppi_uses_official_mom_and_drops_legacy_estimate(monkeypatch):
     official = {"title": f"{y}年{int(m)}月份工业生产者出厂价格同比下降2.3% 环比持平",
                 "url": "https://www.stats.gov.cn/sj/zxfb/test.html"}
     monkeypatch.setattr(nbs_release, "find_releases", lambda *a, **k: [official])
+    monkeypatch.setattr(mod, "_fetch_ppi_history", lambda: pd.DataFrame())
     monkeypatch.setattr(mod, "_fetch_eastmoney", lambda *a, **k: previous[["date", "ppi_yoy"]].copy())
     result = mod.fetch_ppi(conn)
     assert result["ppi_mom"].notna().sum() == 1

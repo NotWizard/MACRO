@@ -257,5 +257,12 @@ export interface CrclFundamentals {
   quarters?: Array<Record<string, number | string | null>>
   annual?: Array<Record<string, number | string | null>>
   presale?: Record<string, number>
+  arc?: {
+    as_of: string
+    assets_b?: number | null
+    usdc_volume_min_b?: number | null
+    daily_transactions_approx?: number | null
+    source: string
+  } | null
   error?: string
 }

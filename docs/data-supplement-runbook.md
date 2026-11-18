@@ -30,18 +30,18 @@ jq '{ts, committed, derived, tables, sources}' data/last_run.json
 | money_supply | AKShare 月度货币供应量；[中国人民银行](https://www.pbc.gov.cn/) 货币金融统计 | 对比 M0/M1/M2 各自同比最新期；M1 定义变化按官方说明，不用旧口径接算。 |
 | gdp | AKShare/东财；[国家统计局发布](https://www.stats.gov.cn/sj/zxfb/) | 累计季度，日期写累计末季的**首月**（Q3 为 07-01，全年为 10-01）；债务收入比用可用全年 GDP，不拿 Q1×4。 |
 | cpi | AKShare/东财；统计局全国居民消费价格 | 同比、实际环比分开核对，不用同比推环比。 |
-| ppi | 东财同比长历史；统计局最新 3 期原文补同比/环比 | 全国工业生产者**出厂价格**，不是购进价；环比须有 `ppi_mom_source`。无来源的旧推算值会清空；以后自动积累有来源历史，没确认的留空。 |
+| ppi | 东财同比长历史；统计局近 3 期原文；[中国房地产估价师与房地产经纪人学会历史表](https://www.cirea.org.cn/content/4776)补环比缺口 | 全国工业生产者**出厂价格**，不是购进价；每期环比须有 `ppi_mom_source`。历史表只补空，原文优先，无来源推算或插值不入库。 |
 | pmi | 东财、AKShare；统计局和 [S&P Global PMI 发布日历](https://www.pmi.spglobal.com/Public/Home/PDF/UK_Rel_Dates)（按实际日期找发布稿；日历没有实绩） | 官方制造/非制造、RatingDog 制造/服务是四条序列，分别核对。旧 AKShare/Jin10 财新序列有中段缺口，不插值。 |
 | pmi_detail | 统计局「中国采购经理指数运行情况」原始两表 | 滚动约 13 期并累积旧期；看生产、新订单、原材料库存、产成品库存等字段，不把非制造业活动混进制造业分项。 |
 | leverage | CNBS 经 AKShare，NIFD 季报补充 | 日期写**季末月**；季度发布后核对六个部门，见第 3 节。 |
 | social_finance | AKShare 镜像；央行调查统计司「社会融资规模增量」XLSX | 按**当月增量**亿元，不用存量或年初至今累计；见第 3 节。 |
 | lpr | 东财；央行/全国银行间同业拆借中心公告 | 1 年期和 5 年期以上，期次按报价月；公告前旧月保留。 |
 | industrial | AKShare/NBS；统计局工业生产发布 | 规上工业增加值；1–2 月合报不能补作两个独立观测。 |
-| domestic_demand | 东财社零、固投；NBS 失业率 API / 国民经济运行原文 | 社零/固投当月与累计分开；全国和 31 城城镇调查失业率分别核实。 |
+| domestic_demand | 东财社零、固投；NBS 失业率 API → 国民经济发布与就业解读 → 历史公开表 | 社零/固投当月与累计分开；全国和 31 城分别核实。旧网页搬迁后的目录年月不是出版日期，读实际原文日期；1–2 月合报不代表两个月同值。 |
 | house_price | AKShare 统计局 70 城数据 | 生产表仅跟踪 10 城样本；按日期与城市去重，核验各城市的新房/二手房，不称全国 70 城广度。 |
 | real_estate_activity | 统计局「全国房地产市场基本情况」正文/表格 | 扫最近 15 期并累积旧期；核对累计开发投资、销售额/面积、新开工、竣工、待售、到位资金，不把累计值当单月，1 月通常无独立值。 |
 | household_income | NBS「人民生活→全国居民人均收入情况」及总人口 | 年度全国居民人均可支配收入×总人口；核对 `income_per_capita`、`population_10k`、`income_abs`，不可换成城镇专口径。 |
-| new_credit | AKShare/NBS；央行金融统计数据报告 | 以管线使用的新增人民币贷款定义为准，不等同于社融口径「对实体经济发放的人民币贷款」。 |
+| new_credit | AKShare 的新增人民币贷款镜像；对照央行同口径明细 | 先核对金融机构贷款或社融分项的口径，不互相覆盖。`loan_yoy` 只在去年同月基数为正时计算；`loan_yoy_change` 记录实际金额之差（亿元）。`sf_stock_yoy` 是近 12 月社融增量累计同比，不是官方存量同比。 |
 | bond_yield | [中债信息网](https://www.chinabond.com.cn/) 国债收益率曲线 | 10 年期收益率，进行中的月允许是已到日的月度观测，不当完整月。 |
 | demographics | 统计局人口公报优先；[世界银行 WDI](https://data.worldbank.org/country/china) 补长历史/结构 | 年度人口、城镇化、出生率、自然增长率、65 岁及以上占比、抚养比逐字段验收。总人口单位为万人，出生/自然增长率为 ‰，占比为 %；不拿不同源的出生/死亡率随意混算。 |
 | fiscal | NBS 优先，东财收入兜底；[财政部财政数据](https://www.mof.gov.cn/gkml/caizhengshuju/) | 全国一般公共预算累计收入、支出（亿元及累计同比），不是政府性基金；收入有新月不代表支出同月已发布。 |
@@ -73,6 +73,10 @@ jq '{ts, committed, derived, tables, sources}' data/last_run.json
 2. 在 `data/crcl_fundamentals.json` 的 `quarters` 按财季升序追加/修订。财务 `_m` 是百万美元，流通/TPV `_b` 是十亿，链上交易量 `_t` 是万亿。期末 USDC 和平均 USDC 不混用，季度公司披露不以 DefiLlama 最新日替代。CPN 年化 TPV 不是本季度实现值。`reserve_revenue_m + other_revenue_m ≈ total_revenue_m`；`nonreserve_share_pct` = 其他收入/总收入×100；`distribution_cost_ratio_pct` = 同期分发相关成本/总收入×100。对照原文确定分子是否含交易及其他成本；不要向年度单行复制季度口径。一次性确认单独注明，不给真实异常设上限，也不将其称为经常性收入。记录 `source` 和 `updated_at`。
 3. 在 `data/crcl_events.json` 核对财报、监管和利率事件。每项填写 `date`（YYYY-MM-DD）、`category`、`title`、`detail`、`source`、`status`。过期的「计划」不自动变「已发生」：确认实际日期和结果才改状态，已知延期按新计划更新，未核实标「待验证」；保留来源和历史。同一事件的提案、表决、生效、执行不是一个日期。FOMC 查 [Fed 决议与日历](https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm)；美国立法查 [Congress.gov](https://www.congress.gov/)、[Federal Register](https://www.federalregister.gov/) 和发布部门；欧盟查 [EBA](https://www.eba.europa.eu/)。`flags.fed_cutting` 看最近已经发生的利率轨迹，不用期货预测；`flags.clarity_act_passed` 看最终立法状态，不把程序动议、委员会通过或单院通过当最终通过。
 
+对于经财报核实并确认为一次性的非储备收入，在季度条目填写 `nonreserve_one_off_m`（百万美元）并记录原文。不要用预售总金额或管理层指引代替已确认收入。页面和告警以（其他收入 − 已标注一次性收入）÷（总收入 − 已标注一次性收入）计算调整值，同时保留披露占比。例如 2026Q3 的 ARC 预售确认收入是 181.8 百万美元；剔除上述已知项目不等于剔除所有非经常性收入。
+
+Arc 官方披露维护 `data/crcl_fundamentals.json` 的 `arc`：`as_of` 为观测日、`assets_b` 为链上资产（十亿美元）、`usdc_volume_min_b` 为主网上线以来 USDC 交易量下限（十亿美元）、`daily_transactions_approx` 为披露的约数（笔），`source` 链接到具体页。只更新同一观测口径；Dex 成交量、USDC 转账量、CPN 支付量和链上交易笔数不能相互代填。更新里程碑时区分签约、试点、正式投入商用和交易交割。
+
 ### 自动采集
 
 以下直接调用项目既有采集及 JSON 验证，不启动应用，不添加脚本。先维护手工资料，自动采集评估告警时就会使用新数据。
@@ -92,7 +96,7 @@ raise SystemExit(0 if result["status"] == "ok" else 1)
 PY
 ```
 
-6 个来源：DefiLlama 分别取 USDC（stablecoin=2）、EURC（=50；欧元口径）及全市场，注意跨链重复；Treasury.gov CSV 按年回填 3M/6M/1Y（近两年）；CRCL 日线 AKShare 主、yfinance 备；估值用 yfinance。收盘/美债只在有效交易日出现，快照时间和行情日不是一回事。空估值不覆盖旧值，逐项检查 `steps`，顶层 `status=ok` 也可能是部分成功。缺少 yfinance 先查虚拟环境依赖；不得把相邻日期旧值当新值。
+采集 USDC（stablecoin=2）、EURC（=50；欧元口径）和稳定币全市场；Treasury.gov CSV 回填近两年的 3M/6M/1Y；CRCL 日线 AKShare 主、yfinance 备；估值用 yfinance。DefiLlama 还提供 Arc DeFi TVL、链上稳定币市值及 DEX 日成交量：只采 2026-09-16 主网上线以后的值，DEX 用已完结 UTC 日；逐序列验收，三项不能相加。收盘/美债只在有效交易日出现；不要把快照采集时刻当行情日。空估值不覆盖旧值，逐项检查 `steps`，顶层 `status=ok` 也可能是部分成功。
 
 也可用页面「采集 CRCL」，或带本地令牌调用 `POST /api/v1/crcl/refresh`，再持续订阅 `GET /api/v1/crcl/refresh/stream?job_id=…` 到终态。应用启动默认也会自动采集一次（`CRCL_STARTUP_COLLECT=0` 可关）；CLI 与页面二选一。
 
@@ -131,4 +135,4 @@ PY
 - **宏观**：核对原始表有效期，别用 `derived_monthly` 的最大日期（例如新一月债券已到、其它尚未发布）代表所有数据；核对 `derived_quarterly.hh_debt_to_income`、PMI 制造/服务、PPI 官方环比、财政支出、就业/社融分项、人口结构覆盖。黑盒闸门通过却丢字段时，保留前轮 vintage 作为对照；先查原始响应和合并规则，修复后定向重跑。如果源还没恢复而旧观测确已误删，可在锁内从经完整性校验的更新前 vintage 按原期次仅合并缺失字段，走既有暂存/校验/衍生重算/原子切换流程；勿整库回滚或给新一期套旧值。明确区分「有意移除无官方来源的旧推算」（如 PPI）与意外历史退化。
 - **Circle**：按本轮 `run_id` 和实际各序列末期核对；复核最新季度、过期计划项及两个 flags。若服务已开，重新加载宏观首页和 `/crcl-monitor`，或 GET `/api/v1/refresh/status`、`/api/v1/crcl/overview`、`/api/v1/crcl/fundamentals`、`/api/v1/crcl/events`；全量 manifest 只覆盖自动环节。服务未开时，上面的库与直接调用即可完成数据验收，不必启动服务。
 - **代码与 JSON 变动**：运行 `CRCL_STARTUP_COLLECT=0 .venv312/bin/python -m pytest -q backend/tests`、`git diff --check`；发现新增来源/口径/回退方式，同步更新本手册、来源参考和 CHANGELOG。一过性的当前期不要写成固定规则。
-- **交接格式**：运行时间、宏观全量通过/保留数、后续补数与复验、Circle 六个子源及最近有效期、手工季报和事件变更、未发布 / 已发布但取不到 / 已收到但未通过闸门分别列清。附官方出处和回读结果；不得把仅启动任务、HTTP 200、表行数一致当作更新完成。
+- **交接格式**：运行时间、宏观全量通过/保留数、后续补数与复验、Circle 各子源及最近有效期（Arc 三条分别核验）、手工季报和事件变更、未发布 / 已发布但取不到 / 已收到但未通过闸门分别列清。附官方出处和回读结果；不得把仅启动任务、HTTP 200、表行数一致当作更新完成。

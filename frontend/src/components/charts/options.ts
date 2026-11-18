@@ -29,7 +29,7 @@ const COL_ZH: Record<string, string> = {
   gov_total: '政府部门', gov_central: '中央政府', gov_local: '地方政府',
   real_economy: '实体经济部门',
   lpr_1y: 'LPR 1年', lpr_5y: 'LPR 5年', real_rate: '实际利率', bond_10y: '10年期国债',
-  total: '社融增量', sf_stock_yoy: '社融存量增速',
+  total: '社融增量', sf_stock_yoy: '近12月社融增量同比',
   new_rmb_loan: '新增人民币贷款', loan_yoy: '新增贷款同比',
   urbanization_rate: '城镇化率', population: '年末总人口',
   birth_rate: '出生率', natural_growth_rate: '自然增长率',
@@ -40,6 +40,48 @@ const COL_ZH: Record<string, string> = {
   trade_balance: '贸易差额', us_ism_pmi: '美国ISM制造业PMI',
 }
 const zh = (col: string): string => COL_ZH[col] ?? col
+const withUnit = (name: string, unit: string) => unit ? `${name} (${unit})` : name
+const numeric = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+const bottomXAxis = () => {
+  const axis = baseAxis()
+  return { ...axis, axisLine: { ...axis.axisLine, onZero: false }, splitLine: { show: false } }
+}
+const dualGrid = { left: 12, right: 12, top: 36, bottom: 47, containLabel: true }
+
+export function trimEmptyEdges(rows: Rec[], cols: string[]): Rec[] {
+  const hasValues = (row: Rec) => cols.some((col) => numeric(row[col]))
+  const first = rows.findIndex(hasValues)
+  if (first < 0) return []
+  let end = rows.length
+  while (!hasValues(rows[end - 1])) end--
+  return rows.slice(first, end)
+}
+
+// Use the same tick position for zero on both axes; scales stay independent.
+function sharedZeroRanges(series: (string | number | null)[][]) {
+  const bounds = series.map((s) => {
+    const values = s.filter(numeric)
+    return { down: -Math.min(0, ...values), up: Math.max(0, ...values) }
+  })
+  const hasNegative = bounds.some((b) => b.down > 0)
+  const hasPositive = bounds.some((b) => b.up > 0)
+  const negative = !hasNegative ? 0 : !hasPositive ? 5 : Math.max(1, Math.min(4,
+    Math.round(5 * Math.max(...bounds.map(({ down, up }) => down / (down + up || 1))))))
+  const positive = 5 - negative
+  return bounds.map(({ down, up }) => {
+    const raw = Math.max(negative ? down / negative : 0, positive ? up / positive : 0) || 1
+    const power = 10 ** Math.floor(Math.log10(raw))
+    const interval = ([1, 2, 2.5, 5, 10].find((n) => n * power >= raw) ?? 10) * power
+    return { min: negative ? -negative * interval : 0, max: positive * interval, interval }
+  })
+}
+
+const zeroLine = (label = '共同零线'): LineSeriesOption['markLine'] => ({
+  silent: true, symbol: 'none',
+  lineStyle: { color: chartTheme().colors.text3, type: 'dashed', width: 1 },
+  label: { formatter: label, position: 'insideEndTop', fontSize: 10, color: chartTheme().colors.text3 },
+  data: [{ yAxis: 0 }],
+})
 
 /** Credit cycle flagship: M2 同比 line (connectNulls) + M2 趋势 dashed +
  *  phase-background markArea + the 1991–1996 source-gap markArea + caption. */
@@ -60,14 +102,14 @@ export function buildCreditM2Chart(derived: Rec[], cycle: Rec[]): EChartsOption 
     yAxis: { type: 'value', ...baseAxis({ name: '%', scale: true }) },
     series: [
       {
-        name: 'M2同比',
+        name: withUnit('M2同比', '%'),
         type: 'line', smooth: false, connectNulls: true, symbol: 'none',
         data: m2, itemStyle: { color: COLORS.accent }, lineStyle: { color: COLORS.accent, width: 2.5 },
         areaStyle: { opacity: 0.1 },
         markArea: { silent: true, data: [...phaseBg] },
       },
       {
-        name: 'M2趋势',
+        name: withUnit('M2趋势', '%'),
         type: 'line', connectNulls: true, symbol: 'none',
         data: trend, itemStyle: { color: COLORS.warn }, lineStyle: { color: COLORS.warn, width: 2, type: 'dashed' },
       },
@@ -75,17 +117,17 @@ export function buildCreditM2Chart(derived: Rec[], cycle: Rec[]): EChartsOption 
   })
 }
 
-/** Credit impulse — bars (社融信贷脉冲). */
+/** Credit impulse — M2 growth minus its trailing trend, in percentage points. */
 export function buildCreditImpulseChart(cycle: Rec[]): EChartsOption {
   const { colors: COLORS, palette: PALETTE } = chartTheme()
   const dates = cycle.map((r) => r.date as string)
   const impulse = cycle.map((r) => r.credit_impulse as number | null)
   return themed({
     xAxis: { type: 'category', data: dates, ...baseAxis() },
-    yAxis: { type: 'value', ...baseAxis({ name: '亿' }) },
+    yAxis: { type: 'value', ...baseAxis({ name: 'pp' }) },
     series: [
       {
-        name: '信贷脉冲', type: 'bar',
+        name: withUnit('M2 信贷脉冲', 'pp'), type: 'bar',
         data: impulse,
         itemStyle: { color: hexA(COLORS.accent, 0.65) },
       },
@@ -93,8 +135,7 @@ export function buildCreditImpulseChart(cycle: Rec[]): EChartsOption {
   })
 }
 
-/** Dual-axis line — two series on TWO independent y-axes (different units).
- *  CPI vs PPI share the % axis; PMI (~50) vs IP-yoy (~5%) need separate axes. */
+/** Dual-axis line for genuinely different units, e.g. PMI vs IP growth. */
 export function buildDualAxisLine(
   derived: Rec[], a: string, b: string,
   aColor?: string, bColor?: string,
@@ -103,21 +144,26 @@ export function buildDualAxisLine(
   const { colors: COLORS, palette: PALETTE } = chartTheme()
   const aCol = aColor ?? COLORS.accent
   const bCol = bColor ?? COLORS.up
-  const dates = derived.map((r) => r.date as string)
+  const rows = trimEmptyEdges(derived, [a, b])
+  const dates = rows.map((r) => r.date as string)
+  const rightUnit = b.endsWith('_yoy') ? '%' : ''
+  const rightValues = rows.map((r) => r[b])
+  const showRightZero = rightUnit === '%' && rightValues.some((v) => numeric(v) && v < 0)
   return themed({
-    xAxis: { type: 'category', data: dates, ...baseAxis({ boundaryGap: false }) },
+    grid: dualGrid,
+    xAxis: { type: 'category', data: dates, boundaryGap: false, ...bottomXAxis() },
     yAxis: [
       { type: 'value', name: aName ?? zh(a), scale: true, ...baseAxis() },
-      { type: 'value', name: bName ?? zh(b), scale: true, ...baseAxis({ splitLine: { show: false } }),
+      { type: 'value', name: withUnit(bName ?? zh(b), rightUnit), scale: !showRightZero, ...baseAxis({ splitLine: { show: false } }),
         // 右轴名默认向右越界被裁（「工业增加值同…」）；右对齐让文本向左收进图区
         nameTextStyle: { align: 'right' } },
     ],
     series: [
       { name: aName ?? zh(a), type: 'line', yAxisIndex: 0, connectNulls: true, symbol: 'none',
-        data: derived.map((r) => r[a]),
+        data: rows.map((r) => r[a]),
         itemStyle: { color: aCol }, lineStyle: { color: aCol, width: 2.5 }, areaStyle: { opacity: 0.08 } },
-      { name: bName ?? zh(b), type: 'line', yAxisIndex: 1, connectNulls: true, symbol: 'none',
-        data: derived.map((r) => r[b]),
+      { name: withUnit(bName ?? zh(b), rightUnit), type: 'line', yAxisIndex: 1, connectNulls: false, symbol: 'none',
+        data: rightValues, markLine: showRightZero ? zeroLine('右轴 0%') : undefined,
         itemStyle: { color: bCol }, lineStyle: { color: bCol, width: 2 } },
     ],
   })
@@ -135,7 +181,7 @@ export function buildStackedArea(
     series: cols.map((c, i): LineSeriesOption => {
       const color = PALETTE[i % PALETTE.length]
       return {
-        name: zh(c), type: 'line', stack: 'total', connectNulls: true, symbol: 'none',
+        name: withUnit(zh(c), '%'), type: 'line', stack: 'total', connectNulls: true, symbol: 'none',
         itemStyle: { color },          // legend marker + area fill use the same color as the line
         areaStyle: { opacity: 0.12 }, // no explicit color → inherits itemStyle.color
         lineStyle: { width: 1.5, color },
@@ -179,15 +225,25 @@ export function buildScatterQuadrant(
       data: refLines,
     },
   }
-  if (quadrantLabels && refLines.length === 2) {
-    const xs = cycle.map((r) => r[xKey] as number).filter((v) => typeof v === 'number')
-    const ys = cycle.map((r) => r[yKey] as number).filter((v) => typeof v === 'number')
+  let xBounds = {}, yBounds = {}
+  if (quadrantLabels && hline != null && vline != null) {
+    const points = Array.from(byPhase.values()).flat()
+    const xs = points.map(([x]) => x).filter(numeric)
+    const ys = points.map(([, y]) => y).filter(numeric)
     if (xs.length && ys.length) {
       const padX = (Math.max(...xs) - Math.min(...xs)) * 0.05 || 1
       const padY = (Math.max(...ys) - Math.min(...ys)) * 0.08 || 1
-      const [x0, x1] = [Math.min(...xs) - padX, Math.max(...xs) + padX]
-      const [y0, y1] = [Math.min(...ys) - padY, Math.max(...ys) + padY]
-      const vx = vline as number, hy = hline as number
+      function bounds(values: number[], reference: number, pad: number) {
+        const low = Math.min(...values, reference) - pad
+        const high = Math.max(...values, reference) + pad
+        const step = 10 ** Math.floor(Math.log10((high - low) / 5))
+        return [Math.floor(low / step) * step, Math.ceil(high / step) * step]
+      }
+      const [x0, x1] = bounds(xs, vline, padX)
+      const [y0, y1] = bounds(ys, hline, padY)
+      xBounds = { min: x0, max: x1 }
+      yBounds = { min: y0, max: y1 }
+      const vx = vline, hy = hline
       const areas = [
         { key: 'tr', from: [vx, hy], to: [x1, y1], pos: 'insideTopRight', phase: quadrantLabels.tr },
         { key: 'tl', from: [x0, hy], to: [vx, y1], pos: 'insideTopLeft', phase: quadrantLabels.tl },
@@ -215,8 +271,8 @@ export function buildScatterQuadrant(
   return themed({
     // x 轴名居中（旧默认在端点，长名被裁成「GI…」）；y 轴名保持默认端点位（顶部横排），
     // 左对齐收进图区——value 轴 middle+旋转在中文字符下会裁边
-    xAxis: { type: 'value', name: xLabel, nameLocation: 'middle', nameGap: 28, ...baseAxis() },
-    yAxis: { type: 'value', name: yLabel, nameTextStyle: { align: 'left', padding: [0, 0, 0, 8] }, ...baseAxis() },
+    xAxis: { type: 'value', name: xLabel, nameLocation: 'middle', nameGap: 28, ...baseAxis(), ...xBounds },
+    yAxis: { type: 'value', name: yLabel, nameTextStyle: { align: 'left', padding: [0, 0, 0, 8] }, ...baseAxis(), ...yBounds },
     tooltip: { trigger: 'item' },
     series: [
       ...Array.from(byPhase.entries()).map(([p, data]): ScatterSeriesOption => ({
@@ -275,19 +331,24 @@ export function buildBarLineCombo(
   barUnit = '', lineUnit = '',
 ): EChartsOption {
   const { colors: COLORS, palette: PALETTE } = chartTheme()
-  const dates = derived.map((r) => r.date as string)
+  const rows = trimEmptyEdges(derived, [barCol, lineCol])
+  const dates = rows.map((r) => r.date as string)
+  const bars = rows.map((r) => r[barCol])
+  const line = rows.map((r) => r[lineCol])
+  const [barRange, lineRange] = sharedZeroRanges([bars, line])
   return themed({
+    grid: dualGrid,
     legend: { top: 0 },
-    xAxis: { type: 'category', data: dates, ...baseAxis() },
+    xAxis: { type: 'category', data: dates, ...bottomXAxis() },
     yAxis: [
-      { type: 'value', name: barUnit, ...baseAxis() },
-      { type: 'value', name: lineUnit, ...baseAxis(), splitLine: { show: false } },
+      { type: 'value', name: barUnit, ...baseAxis(), ...barRange },
+      { type: 'value', name: lineUnit, ...baseAxis(), ...lineRange, splitLine: { show: false } },
     ],
     series: [
-      { name: barName, type: 'bar', yAxisIndex: 0,
-        data: derived.map((r) => r[barCol]), itemStyle: { color: hexA(COLORS.accent, 0.55) } },
-      { name: lineName, type: 'line', yAxisIndex: 1, connectNulls: true, symbol: 'none',
-        data: derived.map((r) => r[lineCol]), itemStyle: { color: COLORS.warn }, lineStyle: { color: COLORS.warn, width: 2 } },
+      { name: withUnit(barName, barUnit), type: 'bar', yAxisIndex: 0,
+        data: bars, itemStyle: { color: hexA(COLORS.accent, 0.55) } },
+      { name: withUnit(lineName, lineUnit), type: 'line', yAxisIndex: 1, connectNulls: false, symbol: 'none',
+        markLine: zeroLine(), data: line, itemStyle: { color: COLORS.warn }, lineStyle: { color: COLORS.warn, width: 2 } },
     ],
   })
 }
@@ -300,14 +361,15 @@ export function buildMultiLine(
   derived: Rec[], cols: { col: string; name: string }[], yUnit = '', markLineAt?: number, markLineName = '荣枯线',
 ): EChartsOption {
   const { colors: COLORS, palette: PALETTE } = chartTheme()
-  const dates = derived.map((r) => r.date as string)
+  const rows = trimEmptyEdges(derived, cols.map((c) => c.col))
+  const dates = rows.map((r) => r.date as string)
   const series: LineSeriesOption[] = cols.map((c, i): LineSeriesOption => {
     const color = PALETTE[i % PALETTE.length]
     return {
-      name: c.name, type: 'line', connectNulls: true, symbol: 'none',
+      name: withUnit(c.name, yUnit), type: 'line', connectNulls: false, showSymbol: false,
       itemStyle: { color },            // legend marker = line color
       lineStyle: { width: 2, color },
-      data: derived.map((r) => r[c.col]),
+      data: rows.map((r) => r[c.col]),
     }
   })
   if (markLineAt !== undefined && series.length) {
@@ -335,7 +397,7 @@ export function buildMultiLine(
     xAxis: { type: 'category', data: dates, ...baseAxis({ boundaryGap: false }) },
     // scale:true → the y-axis adapts to the data range (not forced from 0),
     // so narrow-amplitude series (PMI 49~52) aren't flattened into a near-line.
-    yAxis: { type: 'value', name: yUnit, scale: true, ...baseAxis({ name: yUnit }) },
+    yAxis: { type: 'value', name: yUnit, scale: markLineAt !== 0, ...baseAxis({ name: yUnit }) },
     series,
   })
 }
@@ -354,7 +416,7 @@ export function buildSpreadChart(
     yAxis: { type: 'value', name: unit, scale: true, ...baseAxis({ name: unit }) },
     series: [
       {
-        name, type: 'line', connectNulls: true, symbol: 'none',
+        name: withUnit(name, unit), type: 'line', connectNulls: true, symbol: 'none',
         data: derived.map((r) => r[col]),
         itemStyle: { color: COLORS.accent }, lineStyle: { color: COLORS.accent, width: 2 },
         areaStyle: { color: hexA(COLORS.accent, 0.15) },

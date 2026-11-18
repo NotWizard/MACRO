@@ -354,6 +354,34 @@ def test_mark_stale_on_refresh(monkeypatch):
     assert commentary.get_current()["stale"] is True
 
 
+def test_cli_same_month_revision_marks_batch_stale_without_rewriting_history(monkeypatch):
+    import os
+    from contextlib import closing
+
+    db = commentary.DB_PATH
+    staged = db.with_name("staging.db")
+    version = 1
+    snapshot = {"data_as_of": {"derived_monthly": "2026-10"},
+                "macro_score": {"score": 47.9, "as_of": "2026-10-01"},
+                "sections": {"inventory": {"phase": "主动去库"}}}
+    monkeypatch.setattr(commentary, "build_section_snapshot", lambda: snapshot)
+    monkeypatch.setattr(commentary, "_db_version", lambda: (version,))
+    batch = commentary._persist_batch(snapshot, dict.fromkeys(ALL_KEYS, "旧文本"),
+                                      {"model": "test", "name": "test"}, {}, report_text="旧报告")
+    ts = batch["provenance"]["generated_at"]
+    assert commentary.get_current()["stale"] is False
+    assert batch["provenance"]["data_as_of"]["macro_score"] == "2026-10"
+    with closing(sqlite3.connect(staged)) as dst, closing(sqlite3.connect(db)) as src:
+        src.backup(dst)
+    # Simulate a CLI swap retaining commentary but revising the same month.
+    os.replace(staged, db)
+    version += 1
+    snapshot = {**snapshot, "macro_score": {"score": 48.8, "as_of": "2026-10-01"}}
+    assert commentary.get_current()["stale"] is True
+    assert commentary.get_batch(ts)["report"] == "旧报告"
+    assert all(row["stale"] == 0 for row in _rows())  # GET is read-only
+
+
 @pytest.mark.parametrize("op", ["create", "update", "delete", "set_active"])
 def test_config_mutation_marks_stale(op, monkeypatch):
     _profile()
@@ -542,9 +570,12 @@ def test_snapshot_shape_real_db(monkeypatch):
             _scalar_only(v)                                            # 长序列禁入
 
     assert set(snap["sections"]["merrill"]) == {
-        "phase", "gdp_yoy", "gdp_yoy_prev", "cpi_yoy", "cpi_yoy_prev", "missing"}
+        "phase", "gdp_yoy", "gdp_yoy_prev", "cpi_yoy", "cpi_yoy_prev",
+        "employment_month", "unemployment_rate", "unemployment_31_city",
+        "price_mom_month", "cpi_mom", "ppi_mom", "missing"}
     assert set(snap["sections"]["credit"]) == {
-        "phase", "m2_yoy", "m2_yoy_delta", "credit_impulse", "missing"}
+        "phase", "m2_yoy", "m2_yoy_delta", "credit_impulse",
+        "loan_month", "new_rmb_loan", "loan_yoy", "loan_yoy_change", "missing"}
     assert set(snap["sections"]["inventory"]) == {
         "phase", "pmi_official", "ip_yoy", "missing"}
     assert set(snap["sections"]["debt"]) == {

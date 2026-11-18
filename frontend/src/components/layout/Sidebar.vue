@@ -31,21 +31,23 @@ const isActive = (to: string): boolean => route.path.startsWith(to)
 </script>
 
 <template>
-  <aside class="w-[216px] shrink-0 min-h-screen bg-surface border-r border-border fixed top-0 left-0 overflow-y-auto z-[100] flex flex-col">
-    <div class="px-5 pt-6 pb-5">
+  <aside class="w-14 md:w-[216px] shrink-0 min-h-screen bg-surface border-r border-border fixed top-0 left-0 overflow-y-auto z-[100] flex flex-col">
+    <div class="px-3 md:px-5 pt-6 pb-5">
       <div class="flex items-center gap-2">
         <span class="w-2 h-2 rounded-full bg-accent shadow-[0_0_8px_var(--accent)]" aria-hidden="true" />
-        <span class="text-lg font-extrabold tracking-[0.18em] text-text">MACRO</span>
+        <span class="hidden md:inline text-lg font-extrabold tracking-[0.18em] text-text">MACRO</span>
       </div>
-      <div class="text-[11px] text-text-3 mt-1.5">中国经济分析平台</div>
+      <div class="hidden md:block text-[11px] text-text-3 mt-1.5">中国经济分析平台</div>
     </div>
-    <nav class="flex-1 px-3 pb-4">
+    <nav class="flex-1 px-1 md:px-3 pb-4" aria-label="主导航">
       <div v-for="g in groups" :key="g.label" class="mt-4 first:mt-0">
-        <div class="px-2.5 mb-1.5 text-[10px] font-semibold tracking-[0.14em] text-text-4 select-none">{{ g.label }}</div>
+        <div class="sr-only md:not-sr-only md:px-2.5 mb-1.5 text-[10px] font-semibold tracking-[0.14em] text-text-4 select-none">{{ g.label }}</div>
         <RouterLink
           v-for="it in g.items"
           :key="it.to"
           :to="it.to"
+          :aria-label="it.label"
+          :title="it.label"
           class="relative flex items-center gap-2.5 px-2.5 py-[7px] mb-0.5 rounded-lg text-[13px] font-medium transition-colors duration-150"
           :class="isActive(it.to)
             ? 'bg-accent-soft text-text'
@@ -57,11 +59,11 @@ const isActive = (to: string): boolean => route.path.startsWith(to)
             aria-hidden="true"
           />
           <span class="text-sm w-5 text-center transition-opacity" :class="isActive(it.to) ? 'opacity-100 text-accent' : 'opacity-50'" aria-hidden="true">{{ it.icon }}</span>
-          <span>{{ it.label }}</span>
+          <span class="hidden md:inline">{{ it.label }}</span>
         </RouterLink>
       </div>
     </nav>
-    <div class="px-5 py-4 border-t border-border text-[10px] text-text-4 leading-relaxed">
+    <div class="hidden md:block px-5 py-4 border-t border-border text-[10px] text-text-4 leading-relaxed">
       <div>数据来源 · AKShare / NBS / PBoC</div>
       <div class="mt-0.5">FastAPI · Vue 3 · ECharts</div>
     </div>

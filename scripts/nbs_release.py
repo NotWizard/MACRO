@@ -16,6 +16,7 @@ is performed here.
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
 from urllib.parse import urljoin
 
@@ -24,6 +25,11 @@ import requests
 from lxml import html as lxml_html
 
 NBS_RELEASE_INDEX = "https://www.stats.gov.cn/sj/zxfb/"
+CIREA_PPI_HISTORY = "https://www.cirea.org.cn/content/4776"
+EMPLOYMENT_HISTORY = {
+    "unemployment_rate": "https://www.gotohui.com/gongzi/show-3713271",
+    "unemployment_31_city": "https://www.gotohui.com/gongzi/show-281503",
+}
 _HEADERS = {"User-Agent": "Mozilla/5.0"}
 _DATE_RE = re.compile(r"(\d{4})年(\d{1,2})月")
 
@@ -34,7 +40,7 @@ def _get(url: str) -> requests.Response:
     return response
 
 
-def find_releases(keyword: str, limit: int = 1, max_pages: int = 24) -> list[dict]:
+def find_releases(keyword: str | re.Pattern, limit: int = 1, max_pages: int = 24) -> list[dict]:
     """Return newest NBS release pages whose title contains ``keyword``."""
     if limit < 1:
         return []
@@ -44,11 +50,16 @@ def find_releases(keyword: str, limit: int = 1, max_pages: int = 24) -> list[dic
         page_url = NBS_RELEASE_INDEX + (
             "" if page_index == 0 else f"index_{page_index}.html"
         )
-        doc = lxml_html.fromstring(_get(page_url).content)
+        try:
+            doc = lxml_html.fromstring(_get(page_url).content)
+        except requests.RequestException:
+            if not found:
+                raise
+            break
         for anchor in doc.xpath("//a[@title]"):
             title = (anchor.get("title") or "").strip()
             href = (anchor.get("href") or "").strip()
-            if keyword not in title or not href:
+            if not href or not (keyword in title if isinstance(keyword, str) else keyword.search(title)):
                 continue
             url = urljoin(page_url, href)
             if url in seen:
@@ -202,6 +213,128 @@ def fetch_ppi_headlines(limit: int = 3) -> pd.DataFrame:
             rows.append({"date": f"{month[1]}-{int(month[2]):02d}-01",
                          **rates, "ppi_mom_source": release["url"]})
     return pd.DataFrame(rows, columns=["date", "ppi_yoy", "ppi_mom", "ppi_mom_source"])
+
+
+def fetch_ppi_history() -> pd.DataFrame:
+    """CIREA's published national PPI history; keep the original month text."""
+    doc = lxml_html.fromstring(_get(CIREA_PPI_HISTORY).content)
+    rows = {}
+    for table in doc.xpath("//table"):
+        trs = table.xpath(".//tr")
+        if not trs:
+            continue
+        heading = re.sub(r"\s+", "", trs[0].text_content())
+        if "全国同比" not in heading or "全国环比" not in heading:
+            continue
+        for tr in trs[1:]:
+            cells = [td.text_content().strip() for td in tr.xpath("./td")]
+            for i in (0, 3):
+                if len(cells) < i + 3:
+                    continue
+                m = re.fullmatch(r"(\d{4})\.(0?[1-9]|1[0-2])", cells[i])
+                mom = _number(cells[i + 2])
+                if m and mom is not None and -15 <= mom <= 15:
+                    day = f"{m[1]}-{int(m[2]):02d}-01"
+                    rows[day] = {"date": day, "ppi_mom": mom,
+                                 "ppi_mom_source": CIREA_PPI_HISTORY}
+    return pd.DataFrame(rows.values(), columns=["date", "ppi_mom", "ppi_mom_source"])
+
+
+_EMPLOYMENT_LABELS = {
+    "unemployment_rate": r"全国城镇调查失业率",
+    "unemployment_31_city": r"31个大城市(?:的)?城镇调查失业率",
+}
+
+
+def parse_employment_release(page: bytes, title: str, url: str) -> list[dict]:
+    """Only actual observed rates, not YTD averages or percentage-point deltas."""
+    doc = lxml_html.fromstring(page)
+    # Many releases prior to the site migration live under /202302/ even
+    # though their publication date is still available in the article header.
+    publication = " ".join(doc.xpath('//meta[@name="PubDate"]/@content'))
+    if not publication:
+        # Use the visible dateline (a whole text node), not dates mentioned
+        # in the article or the URL path of a migrated page.
+        dateline = re.compile(r"\s*\d{4}[/-]\d{1,2}[/-]\d{1,2}\s+\d{1,2}:\d{2}\s*")
+        publication = next((s for s in doc.xpath("//body//text()") if dateline.fullmatch(s)), "")
+    published = re.search(r"(\d{4})[/-](\d{1,2})[/-]\d{1,2}", publication)
+    if not published:
+        published = re.search(r"/(\d{4})(\d{2})/", url)
+    if not published:
+        return []
+    ym = re.match(r"(?:(\d{4})年)?(?:1[—–-])?(\d{1,2})月份?", title)
+    last_month = int(published[2]) - 1 or 12
+    year = int(published[1]) - int(last_month == 12)
+    if ym:
+        if int(ym[2]) != last_month or (ym[1] and int(ym[1]) != year):
+            return []
+    elif not ((last_month == 3 and "一季度" in title)
+              or (last_month == 6 and "上半年" in title)
+              or (last_month == 9 and "前三季度" in title)
+              or (last_month == 12 and title.startswith(f"{year}年"))):
+        return []
+    # Read article paragraphs and data table rows only, excluding site chrome.
+    text = re.sub(r"\s+", "", "\n".join(doc.xpath("//p//text()")))
+    rows = {}
+    for column, label in _EMPLOYMENT_LABELS.items():
+        match = re.search(rf"{label}(?:为|是|降至|升至)(\d(?:\.\d+)?)%", text)
+        if match:
+            rate = float(match[1])
+        else:
+            rate = None
+            for tr in doc.xpath("//tr"):
+                td = [re.sub(r"\s+", "", cell.text_content()) for cell in tr.xpath("./td")]
+                if len(td) >= 2 and re.fullmatch(rf"(?:[一二三四五六七八九十]+、)?{label}(?:[（(]％?%?[）)])?", td[0]):
+                    rate = _number(td[1])
+                    break
+        if rate is not None and 2 <= rate <= 12:
+            day = f"{year}-{last_month:02d}-01"
+            rows.setdefault(day, {"date": day})[column] = rate
+        if last_month == 2:
+            pair = re.search(rf"1[、—–和]2月份[，,]?{label}分别为(\d(?:\.\d+)?)%[、，,和](\d(?:\.\d+)?)%", text)
+            if pair:
+                for month, number in enumerate(pair.groups(), 1):
+                    if 2 <= float(number) <= 12:
+                        day = f"{year}-{month:02d}-01"
+                        rows.setdefault(day, {"date": day})[column] = float(number)
+    return list(rows.values())
+
+
+def fetch_employment_history(limit: int = 52) -> pd.DataFrame:
+    """Fill historical gaps from public tables; official releases win overlaps."""
+    columns = ["date", *_EMPLOYMENT_LABELS]
+    rows = {}
+    for column, url in EMPLOYMENT_HISTORY.items():
+        try:
+            doc = lxml_html.fromstring(_get(url).content)
+            for tr in doc.xpath("//table[1]//tr"):
+                cells = [td.text_content().strip() for td in tr.xpath("./td")]
+                if len(cells) != 3 or not re.fullmatch(r"\d{4}-(?:0[1-9]|1[0-2])", cells[1]):
+                    continue
+                rate = _number(cells[2])
+                if rate is not None and 2 <= rate <= 12:
+                    day = cells[1] + "-01"
+                    rows.setdefault(day, {"date": day})[column] = rate
+        except (requests.RequestException, ValueError):
+            continue
+
+    def read(release):
+        try:
+            return parse_employment_release(_get(release["url"]).content, **release)
+        except (requests.RequestException, ValueError):
+            return []
+
+    try:
+        monthly = re.compile(r"^(?:\d{4}年)?(?:(?:1[—–-])?\d{1,2}月份?|一季度|上半年|前三季度)?\s*(?:国民经济|经济运行|经济发展)")
+        # A full historical backfill is bounded to the archive through 2022.
+        releases = find_releases(monthly, limit=limit, max_pages=62 if limit > 4 else 12)
+    except requests.RequestException:
+        releases = []
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        for observations in executor.map(read, reversed(releases)):
+            for row in observations:
+                rows.setdefault(row["date"], {}).update(row)
+    return pd.DataFrame(rows.values(), columns=columns)
 
 
 def fetch_real_estate_activity(limit: int = 15) -> pd.DataFrame:

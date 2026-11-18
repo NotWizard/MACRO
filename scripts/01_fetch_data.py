@@ -47,8 +47,10 @@ from signal_history import append_signal_history  # noqa: E402
 from nifd_leverage import nifd_supplement_df  # noqa: E402
 from pbc_shrzgm import pbc_shrzgm_supplement_df  # noqa: E402 — 单一真相源（01+04 共用）
 from nbs_release import (  # noqa: E402
+    fetch_employment_history as _fetch_employment_history,
     fetch_pmi_details as _fetch_nbs_pmi_details,
     fetch_ppi_headlines as _fetch_nbs_ppi_headlines,
+    fetch_ppi_history as _fetch_ppi_history,
     fetch_real_estate_activity as _fetch_nbs_real_estate_activity,
 )
 from _specs import DATE_PARSERS, FETCH_SPECS, pick_curve_table, to_num  # noqa: E402
@@ -458,10 +460,19 @@ def fetch_ppi(conn):
     except Exception as e:
         log(f"  ⚠️ PPI NBS 发布不可用: {e}")
         official = pd.DataFrame()
-    if em.empty and official.empty:
+    history = pd.DataFrame()
+    if previous["ppi_mom"].count() < 100:
+        try:
+            history = _fetch_ppi_history()
+            log(f"  PPI 公布环比历史归档: {len(history)} 期")
+        except Exception as e:
+            log(f"  ⚠️ PPI 环比归档不可用: {e}")
+    if em.empty and official.empty and history.empty:
         save_to_db(pd.DataFrame(), "ppi", conn)
         return pd.DataFrame()
     result = previous.set_index("date")
+    if not history.empty:
+        result = result.combine_first(history.set_index("date"))
     for frame in (em, official):
         if not frame.empty:
             result = frame.set_index("date").combine_first(result)
@@ -1266,9 +1277,8 @@ def fetch_domestic_demand(conn):
 
     Retail sales come from Eastmoney's NBS mirror.  Fixed-asset investment uses
     Eastmoney's ``RPT_ECONOMY_ASSET_INVEST`` report (monthly current / YTD /
-    year-on-year).  The NBS unemployment endpoint is WAF-sensitive, so published
-    official rates for the latest three months are retained as an explicit
-    supplement instead of dropping the whole table.
+    year-on-year). Published NBS releases and a public historical mirror
+    fill missing unemployment observations when the NBS API is unavailable.
     """
     log("采集: 实体需求（社零 / 固定资产投资 / 失业率） ...")
     retail = ak.macro_china_consumer_goods_retail()
@@ -1314,9 +1324,21 @@ def fetch_domestic_demand(conn):
                 .reset_index()
             )
     except Exception as e:
-        log(f"  ⚠️ NBS 城镇调查失业率采集失败，使用官方发布补充值: {e}")
+        log(f"  ⚠️ NBS 城镇调查失业率接口不可用: {e}")
 
     _UNEMPLOYMENT_SUPPLEMENT = pd.DataFrame([
+        # NBS 2022H1: https://www.stats.gov.cn/xxgk/sjfb/zxfb2020/202207/t20220715_1886444.html
+        {"date": "2022-06-01", "unemployment_rate": 5.5, "unemployment_31_city": 5.8},
+        # NBS 2023Q1 national; 31 cities cross-checked with the January
+        # same-month comparison in the 2024Q1 release directly below.
+        # https://www.stats.gov.cn/sj/sjjd/202304/t20230419_1938809.html
+        {"date": "2023-01-01", "unemployment_rate": 5.5, "unemployment_31_city": 5.8},
+        # NBS Q1 employment releases: January levels and same-month changes.
+        # https://www.stats.gov.cn/xxgk/jd/sjjd2020/202404/t20240417_1948601.html
+        {"date": "2024-01-01", "unemployment_rate": 5.2, "unemployment_31_city": 4.9},
+        # https://www.stats.gov.cn/sj/sjjd/202604/t20260417_1963340.html
+        {"date": "2025-01-01", "unemployment_rate": 5.2, "unemployment_31_city": 5.1},
+        {"date": "2026-01-01", "unemployment_rate": 5.2, "unemployment_31_city": 5.0},
         {"date": "2026-07-01", "unemployment_rate": 5.2,
          "unemployment_31_city": 5.2},
         {"date": "2026-08-01", "unemployment_rate": 5.3,
@@ -1339,19 +1361,27 @@ def fetch_domestic_demand(conn):
                     unemployment[alt])
                 unemployment = unemployment.drop(columns=[alt])
 
-    result = retail_m
-    for frame in (fai, unemployment):
-        if not frame.empty:
-            result = result.merge(frame, on="date", how="outer")
-    # Employment is an independent optional source. WAF fallback may cover
-    # only a few recent releases; don't erase the older rates already fetched.
     try:
         previous = pd.read_sql("SELECT * FROM domestic_demand", conn).set_index("date")
     except pd.errors.DatabaseError:
-        pass
-    else:
-        previous = previous.filter(regex="^unemployment_")
-        result = result.set_index("date").combine_first(previous).reset_index()
+        previous = pd.DataFrame()
+    employment = unemployment.set_index("date").combine_first(previous.filter(regex="^unemployment_"))
+    fields = ["unemployment_rate", "unemployment_31_city"]
+    # On routine refreshes look for new releases; only scan the full public
+    # archive while an existing installation still lacks historical coverage.
+    history_limit = 70 if employment.reindex(columns=fields).count().min() < 98 else 4
+    try:
+        history = _fetch_employment_history(limit=history_limit)
+        if not history.empty:
+            employment = employment.combine_first(history.set_index("date"))
+            log(f"  失业率公开归档: {len(history)} 期")
+    except Exception as e:
+        log(f"  ⚠️ 失业率公开归档不可用: {e}")
+
+    result = retail_m
+    for frame in (fai, employment.rename_axis("date").reset_index()):
+        if not frame.empty:
+            result = result.merge(frame, on="date", how="outer")
     result = result.sort_values("date").reset_index(drop=True)
     save_to_db(result, "domestic_demand", conn)
     return result

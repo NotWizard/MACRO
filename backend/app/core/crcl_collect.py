@@ -28,6 +28,7 @@ import os
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import httpx
@@ -85,8 +86,17 @@ METRIC_LABELS = {
     "crcl_close": ("CRCL 收盘价", "美元", "AKShare stock_us_daily", "日"),
     "eurc_circ": ("EURC 流通量", "欧元", "DefiLlama /stablecoincharts/all?stablecoin=50", "日"),
     "crcl_volume": ("CRCL 成交量", "股", "AKShare stock_us_daily", "日"),
+    "arc_tvl": ("Arc DeFi 锁仓量", "美元", "DefiLlama /v2/historicalChainTvl/Arc", "日"),
+    "arc_stablecoins": ("Arc 稳定币市值", "美元", "DefiLlama /stablecoincharts/Arc", "日"),
+    "arc_dex_volume": ("Arc DEX 成交量", "美元", "DefiLlama /overview/dexs/Arc", "日"),
 }
 
+ARC_MAINNET = "2026-09-16"
+_ARC_URLS = {
+    "arc_tvl": "https://api.llama.fi/v2/historicalChainTvl/Arc",
+    "arc_stablecoins": "https://stablecoins.llama.fi/stablecoincharts/Arc",
+    "arc_dex_volume": "https://api.llama.fi/overview/dexs/Arc?excludeTotalDataChartBreakdown=true",
+}
 
 def _log(run_id: str, source: str, status: str, message: str, started: float) -> None:
     crcl_db.add_log(run_id, source, status, message, int((time.time() - started) * 1000))
@@ -170,6 +180,44 @@ def collect_stablecoin_total(run_id: str) -> int:
     except Exception as e:  # noqa: BLE001
         _log(run_id, "defillama_total", "error", f"{type(e).__name__}: {e}", t0)
         return 0
+
+
+def collect_arc(run_id: str) -> int:
+    """Mainnet daily history. DEX uses completed UTC days, not a rolling 24h quote."""
+    today = datetime.now(timezone.utc).date().isoformat()
+
+    def fetch(item):
+        metric, url = item
+        started = time.time()
+        try:
+            response = httpx.get(url, timeout=DEFILLAMA_TIMEOUT, follow_redirects=True)
+            response.raise_for_status()
+            data = response.json()
+            if metric == "arc_tvl":
+                observations = ((r["date"], r.get("tvl")) for r in data)
+            elif metric == "arc_stablecoins":
+                observations = ((r["date"], (r.get("totalCirculatingUSD") or {}).get("peggedUSD")) for r in data)
+            else:
+                observations = iter(data["totalDataChart"])
+            points = []
+            for ts, raw_value in observations:
+                day = _iso_from_ts(ts)
+                if raw_value is None or not ARC_MAINNET <= day <= today:
+                    continue
+                if metric == "arc_dex_volume" and day == today:
+                    continue
+                value = float(raw_value)
+                if math.isfinite(value) and value >= 0:
+                    points.append((day, value))
+            n = _write_points(metric, points)
+            _log(run_id, metric, "ok", f"{n} 个主网数据点", started)
+            return n
+        except Exception as e:  # same isolation as the other CRCL steps
+            _log(run_id, metric, "error", f"{type(e).__name__}: {e}", started)
+            return 0
+
+    with ThreadPoolExecutor(max_workers=len(_ARC_URLS)) as executor:
+        return sum(executor.map(fetch, _ARC_URLS.items()))
 
 
 def collect_treasury(run_id: str) -> int:
@@ -334,6 +382,7 @@ def _collect_all_locked(progress_cb, stop_event) -> dict:
         ("EURC 流通量历史", collect_eurc_circ),
         ("美债收益率", collect_treasury),
         ("CRCL 日线", collect_crcl_stock),
+        ("Arc 主网", collect_arc),
     ]
     steps.append(("估值快照", collect_valuation_snapshot))
     failed = []
@@ -351,6 +400,9 @@ def _collect_all_locked(progress_cb, stop_event) -> dict:
     logs = crcl_db.get_logs(run_id=run_id)
     if any(l["source"] == "treasury_csv" and l["status"] == "partial" for l in logs):
         failed.append("美债部分年份")
+    if "Arc 主网" not in failed:
+        failed.extend(METRIC_LABELS[l["source"]][0] for l in logs
+                      if l["source"] in _ARC_URLS and l["status"] == "error")
     changed = []
     if successful:
         update_circ_snapshot(run_id)

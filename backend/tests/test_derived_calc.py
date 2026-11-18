@@ -132,6 +132,15 @@ def test_loan_stock_yoy_head_is_nan_too(tmp_path):
     assert monthly["loan_stock_yoy"].iloc[23] == pytest.approx(expected)
 
 
+def test_loan_yoy_nonpositive_base_only_reports_amount_change(tmp_path):
+    dates = pd.date_range("2025-08-01", periods=15, freq="MS").strftime("%Y-%m-01")
+    credit = pd.DataFrame({"date": dates, "new_rmb_loan": [100, 0, -154, *([900] * 9), -50, 25, -5846]})
+    monthly, _ = _run(tmp_path / "d.db", money_supply=_money(15, "2025-08-01"), new_credit=credit)
+    assert monthly["loan_yoy"].iloc[12] == pytest.approx(-150)
+    assert monthly["loan_yoy"].iloc[13:15].isna().all()
+    assert monthly["loan_yoy_change"].iloc[12:15].tolist() == [-150, 25, -5692]
+
+
 # ── P-M2: 12 months means 12 CALENDAR months ─────────────────────────────────
 def test_missing_month_yields_a_true_12_calendar_month_change(tmp_path):
     """With month 18 absent from social_finance, a row offset of 12 lands on

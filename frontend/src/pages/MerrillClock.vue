@@ -5,7 +5,7 @@ import { useAsyncData } from '@/composables/useAsyncData'
 import { useFiltersStore } from '@/stores/filters'
 import { useRefreshStore } from '@/stores/refresh'
 import SectionCommentary from '@/components/layout/SectionCommentary.vue'
-import { buildScatterQuadrant, buildDualAxisLine, buildMultiLine } from '@/components/charts/options'
+import { buildScatterQuadrant, buildMultiLine } from '@/components/charts/options'
 import EChart from '@/components/charts/EChart.vue'
 import GraphCard from '@/components/layout/GraphCard.vue'
 import { phaseColor, phaseLabel } from '@/design/phases'
@@ -21,8 +21,8 @@ type Rec = Record<string, string | number | null>
 const { data, errorText: error, loading, retry: load } = useAsyncData(async (signal) => {
   const [r, cp, cm, d] = await Promise.all([
     api.getCycle('merrill', filters.start ?? undefined, filters.end ?? undefined, { signal }),
-    api.getDerivedMonthly(filters.start ?? undefined, filters.end ?? undefined, 'date,cpi_yoy,ppi_yoy', true, { signal }),
-    api.getDerivedMonthly(filters.start ?? undefined, filters.end ?? undefined, 'date,cpi_mom,ppi_mom', true, { signal }),
+    api.getDerivedMonthly(filters.start ?? undefined, filters.end ?? undefined, 'date,cpi_yoy,ppi_yoy', false, { signal }),
+    api.getDerivedMonthly(filters.start ?? undefined, filters.end ?? undefined, 'date,cpi_mom,ppi_mom', false, { signal }),
     api.getTable('domestic_demand', filters.start ?? undefined, filters.end ?? undefined, { signal }),
   ])
   return {
@@ -52,8 +52,12 @@ const quadrant = computed(() =>
   })),
 )
 const clockOpt = themedOption(() => (buildScatterQuadrant(quadrant.value, 'gdp_gap', 'cpi_yoy', 'GDP同比−潜在增长(pp)', 'CPI同比(%)', 2, 0, { tr: 'overheating', tl: 'stagflation', br: 'recovery', bl: 'recession' })))
-const cpiPpiOpt = themedOption(() => (buildDualAxisLine(cpiPpi.value, 'cpi_yoy', 'ppi_yoy')))
-const cpiMomOpt = themedOption(() => (buildDualAxisLine(cpiMom.value, 'cpi_mom', 'ppi_mom')))
+const cpiPpiOpt = themedOption(() => buildMultiLine(cpiPpi.value, [
+  { col: 'cpi_yoy', name: 'CPI 同比' }, { col: 'ppi_yoy', name: 'PPI 同比' },
+], '%', 0, '零线'))
+const cpiMomOpt = themedOption(() => buildMultiLine(cpiMom.value, [
+  { col: 'cpi_mom', name: 'CPI 环比' }, { col: 'ppi_mom', name: 'PPI 环比' },
+], '%', 0, '零线'))
 const demandOpt = themedOption(() => (buildMultiLine(demand.value, [
   { col: 'retail_yoy', name: '社零当月同比' },
   { col: 'retail_cum_yoy', name: '社零累计同比' },
@@ -80,13 +84,13 @@ const employmentOpt = themedOption(() => (buildMultiLine(demand.value, [
     <GraphCard title="CPI vs PPI 同比" tip="居民消费价格 vs 工业生产者出厂价格同比——美林时钟纵轴 CPI 的主轴曲线。" :loading="loading" :error="error" @retry="load">
       <EChart :option="cpiPpiOpt" height="300px" />
     </GraphCard>
-    <GraphCard title="CPI vs PPI 环比" tip="居民消费价格与工业生产者出厂价格环比。PPI 表首次成功按新规则刷新后，环比仅保留国家统计局公布值；未取得的月份留空。" :loading="loading" :error="error" @retry="load">
+    <GraphCard title="CPI vs PPI 环比" tip="两者共用百分比轴。PPI 使用国家统计局公布值及公开历史归档，不从同比反推；未取得的月份留空。" :loading="loading" :error="error" @retry="load">
       <EChart :option="cpiMomOpt" height="260px" />
     </GraphCard>
     <GraphCard title="消费与固定资产投资" tip="社会消费品零售总额当月/累计同比 + 固定资产投资（不含农户）当月同比。社零衡量居民商品消费，固投衡量企业、基建与地产形成的资本开支；零线为同比持平。" :loading="loading" :error="error" @retry="load">
       <EChart :option="demandOpt" height="320px" />
     </GraphCard>
-    <GraphCard title="城镇就业景气" tip="全国城镇调查失业率与 31 个大城市调查失业率（%）。失业率上行意味着居民收入预期和政策托底压力上升，是消费与信用周期的重要同步指标。" :loading="loading" :error="error" @retry="load">
+    <GraphCard title="城镇就业景气" tip="全国与 31 个大城市城镇调查失业率。两条是不同样本，缺月保留断点；不以全国值替代 31 城值，也不以年均值替代单月值。" :loading="loading" :error="error" @retry="load">
       <EChart :option="employmentOpt" height="280px" />
     </GraphCard>
     <SectionCommentary section="merrill" />

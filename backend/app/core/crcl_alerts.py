@@ -62,6 +62,7 @@ class _Quarter(BaseModel):
     reserve_revenue_yoy_pct: StrictFloat | None = None
     other_revenue_m: StrictFloat | None = None
     nonreserve_share_pct: StrictFloat | None = None
+    nonreserve_one_off_m: StrictFloat | None = Field(default=None, ge=0)
     eps_actual: StrictFloat | None = None
     eps_consensus: StrictFloat | None = None
     usdc_circ_end_b: StrictFloat | None = None
@@ -96,6 +97,14 @@ class _Presale(BaseModel):
     source: str | None = None
 
 
+class _ArcDisclosure(BaseModel):
+    as_of: date
+    assets_b: StrictFloat | None = Field(default=None, ge=0)
+    usdc_volume_min_b: StrictFloat | None = Field(default=None, ge=0)
+    daily_transactions_approx: StrictFloat | None = Field(default=None, ge=0)
+    source: str
+
+
 class FundamentalsFile(BaseModel):
     """Schema for data/crcl_fundamentals.json (unknown keys like _说明 ignored)."""
 
@@ -105,14 +114,15 @@ class FundamentalsFile(BaseModel):
     quarters: list[_Quarter] = Field(default_factory=list)
     annual: list[_Annual] = Field(default_factory=list)
     presale: _Presale | None = None
+    arc: _ArcDisclosure | None = None
 
 
 RULES = {
     "y_usdc_growth": ("yellow", "USDC 流通量同比增速 <15%（跑不赢降息）"),
-    "y_nonreserve_stagnant": ("yellow", "非储备收入占比连续两季停滞（变化 <1pp）"),
+    "y_nonreserve_stagnant": ("yellow", "剔除已标注一次性收入后，非储备占比连续两季停滞（变化 <1pp）"),
     "y_distribution_cost": ("yellow", "分发成本率 >60% 且无下降趋势"),
-    "r_thesis_falsified": ("red", "论点证伪：2027 年中 非储备占比 <10% + 流通增速 <10% + 降息持续"),
-    "c_thesis_confirmed": ("confirm", "论点确认：非储备占比 >15% + 流通增速 ≥20% + Clarity Act 通过"),
+    "r_thesis_falsified": ("red", "论点证伪：2027 年中 调整后非储备占比 <10% + 流通增速 <10% + 降息持续"),
+    "c_thesis_confirmed": ("confirm", "论点确认：调整后非储备占比 >15% + 流通增速 ≥20% + Clarity Act 通过"),
 }
 
 
@@ -153,6 +163,23 @@ def _quarter_ordinal(period: str | None) -> int | None:
     return int(m.group(1)) * 4 + (int(m.group(2)) - 1)
 
 
+def adjusted_nonreserve_share(q: _Quarter) -> float | None:
+    """Remove only documented one-offs from both numerator and denominator."""
+    one_off, other, total = q.nonreserve_one_off_m, q.other_revenue_m, q.total_revenue_m
+    if not one_off:
+        return q.nonreserve_share_pct
+    if other is None or total is None or not (one_off <= other <= total and total > one_off):
+        return None
+    return 100 * (other - one_off) / (total - one_off)
+
+
+def _latest_nonreserve_share(f: FundamentalsFile) -> float | None:
+    dated = [(i, q) for q in f.quarters if (i := _quarter_ordinal(q.period)) is not None]
+    if not dated:
+        return None
+    return adjusted_nonreserve_share(max(dated, key=lambda pair: pair[0])[1])
+
+
 def _usdc_yoy() -> float | None:
     """USDC 流通量同比（%）：最新值 vs ~365 天前的值。"""
     series = crcl_db.get_series("usdc_circ")
@@ -177,29 +204,28 @@ def _eval_y_usdc_growth() -> tuple[str, str]:
 
 def _eval_y_nonreserve_stagnant() -> tuple[str, str]:
     f = _load_fundamentals()
-    # Keep only quarters that have a numeric share *and* a parseable period,
-    # then compare the two most-recent ones ONLY if they are adjacent — a
-    # missing middle quarter must not be treated as "two consecutive".
+    # Compare the latest two dated quarters, not stale observations carried
+    # forward when the latest quarter has no usable adjusted share.
     pts = []
     for q in f.quarters:
-        if q.nonreserve_share_pct is None:
-            continue
         ordinal = _quarter_ordinal(q.period)
         if ordinal is None:
             continue
-        pts.append((ordinal, q.nonreserve_share_pct, q.period))
+        pts.append((ordinal, adjusted_nonreserve_share(q), q.period))
     if len(pts) < 2:
-        return "insufficient_data", "quarters 中不足两季 nonreserve_share_pct 数据（需手工维护）"
+        return "insufficient_data", "不足两季调整后非储备收入占比（需核对财报）"
     pts.sort(key=lambda t: t[0])
     (prev_o, prev_s, prev_p), (last_o, last_s, last_p) = pts[-2], pts[-1]
     if last_o - prev_o != 1:
         return "insufficient_data", (
-            f"最近两条非空季度（{prev_p} → {last_p}）不相邻，缺中间季度，无法判定连续停滞"
+            f"最近两个季度（{prev_p} → {last_p}）不相邻，缺中间季度，无法判定连续停滞"
         )
+    if last_s is None or prev_s is None:
+        return "insufficient_data", f"{prev_p} → {last_p} 缺少可比的调整后非储备收入占比"
     delta = last_s - prev_s
     if abs(delta) < 1.0:
-        return "triggered", f"非储备占比 {prev_s}% → {last_s}%（变化 {delta:+.1f}pp，停滞）"
-    return "ok", f"非储备占比 {prev_s}% → {last_s}%（{delta:+.1f}pp）"
+        return "triggered", f"调整后非储备占比 {prev_s:.2f}% → {last_s:.2f}%（变化 {delta:+.1f}pp，停滞）"
+    return "ok", f"调整后非储备占比 {prev_s:.2f}% → {last_s:.2f}%（{delta:+.1f}pp）"
 
 
 def _eval_y_distribution_cost() -> tuple[str, str]:
@@ -222,39 +248,39 @@ def _eval_y_distribution_cost() -> tuple[str, str]:
 
 def _eval_r_thesis_falsified() -> tuple[str, str]:
     f = _load_fundamentals()
-    shares = [q.nonreserve_share_pct for q in f.quarters if q.nonreserve_share_pct is not None]
+    share = _latest_nonreserve_share(f)
     yoy = _usdc_yoy()
     now = _today()
     checkpoint = datetime(2027, 6, 30).date()
     if now < checkpoint:
         return "ok", f"检查点 2027-06-30 未到（当前 {now.isoformat()}）"
     missing = []
-    if not shares:
-        missing.append("非储备占比")
+    if share is None:
+        missing.append("调整后非储备占比")
     if yoy is None:
         missing.append("流通量同比")
     if missing:
         return "insufficient_data", "缺少：" + "、".join(missing)
-    conds = shares[-1] < 10 and yoy < 10 and f.flags.fed_cutting
+    conds = share < 10 and yoy < 10 and f.flags.fed_cutting
     if conds:
         return "triggered", (
-            f"非储备占比 {shares[-1]}% <10%，流通增速 {yoy:.1f}% <10%，降息持续 → 估值锚滑向货币基金侧"
+            f"调整后非储备占比 {share:.2f}% <10%，流通增速 {yoy:.1f}% <10%，降息持续 → 估值锚滑向货币基金侧"
         )
-    return "ok", f"未满足证伪组合（非储备 {shares[-1]}%，流通同比 {yoy:.1f}%）"
+    return "ok", f"未满足证伪组合（调整后非储备 {share:.2f}%，流通同比 {yoy:.1f}%）"
 
 
 def _eval_c_thesis_confirmed() -> tuple[str, str]:
     f = _load_fundamentals()
-    shares = [q.nonreserve_share_pct for q in f.quarters if q.nonreserve_share_pct is not None]
+    share = _latest_nonreserve_share(f)
     yoy = _usdc_yoy()
-    if not shares or yoy is None:
-        return "insufficient_data", "缺少非储备占比或流通量同比数据"
+    if share is None or yoy is None:
+        return "insufficient_data", "缺少调整后非储备占比或流通量同比数据"
     conds = (
-        shares[-1] > 15
+        share > 15
         and yoy >= 20
         and f.flags.clarity_act_passed
     )
-    detail = f"非储备占比 {shares[-1]}%（需 >15%），流通同比 {yoy:.1f}%（需 ≥20%），Clarity Act {'已' if f.flags.clarity_act_passed else '未'}通过"
+    detail = f"调整后非储备占比 {share:.2f}%（需 >15%），流通同比 {yoy:.1f}%（需 ≥20%），Clarity Act {'已' if f.flags.clarity_act_passed else '未'}通过"
     return ("triggered", detail) if conds else ("ok", detail)
 
 
@@ -267,10 +293,10 @@ _EVALUATORS = {
 }
 
 
-def evaluate(run_id: str) -> list[str]:
-    """Evaluate all rules; persist only status changes. Returns changed rules."""
-    prev = crcl_db.get_rule_status()
-    changed: list[str] = []
+def current_rule_status() -> dict[str, dict]:
+    """Evaluate against current data without modifying the alert history."""
+    previous = crcl_db.get_rule_status()
+    current = {}
     for rule, fn in _EVALUATORS.items():
         level, _desc = RULES[rule]
         try:
@@ -280,8 +306,20 @@ def evaluate(run_id: str) -> list[str]:
             logger.error("[crcl_alerts] rule %s 数据校验失败: %s", rule, e)
         except Exception as e:  # noqa: BLE001
             status, message = "insufficient_data", f"评估异常 {type(e).__name__}: {e}"
-        last = prev.get(rule, {}).get("status")
-        if status != last:
+        last = previous.get(rule, {})
+        current[rule] = {
+            "level": level, "status": status, "message": message,
+            "ts": last.get("ts") if last.get("status") == status else None,
+        }
+    return current
+
+
+def evaluate(run_id: str) -> list[str]:
+    """Evaluate all rules; persist only status changes. Returns changed rules."""
+    changed: list[str] = []
+    for rule, row in current_rule_status().items():
+        if row["ts"] is None:
+            level, status, message = row["level"], row["status"], row["message"]
             crcl_db.add_alert(rule, level, status, message)
             crcl_db.add_log(
                 run_id, f"alert:{rule}",

@@ -5,7 +5,7 @@ import { useAsyncData } from '@/composables/useAsyncData'
 import { useFiltersStore } from '@/stores/filters'
 import { useRefreshStore } from '@/stores/refresh'
 import SectionCommentary from '@/components/layout/SectionCommentary.vue'
-import { buildCreditM2Chart, buildCreditImpulseChart, buildBarLineCombo, buildDualAxisLine, buildSpreadChart } from '@/components/charts/options'
+import { buildCreditM2Chart, buildCreditImpulseChart, buildBarLineCombo, buildMultiLine, buildSpreadChart } from '@/components/charts/options'
 import EChart from '@/components/charts/EChart.vue'
 import GraphCard from '@/components/layout/GraphCard.vue'
 import { phaseColor, phaseLabel } from '@/design/phases'
@@ -25,8 +25,8 @@ const { data, errorText: error, loading, retry: load } = useAsyncData(async (sig
   const [m12, sp, sf, nc, cc] = await Promise.all([
     api.getDerivedMonthly(filters.start ?? '1996-12-01', filters.end ?? undefined, 'date,m1_yoy,m2_yoy', true, { signal }),
     api.getDerivedMonthly(filters.start ?? '1996-12-01', filters.end ?? undefined, 'date,m2_m1_spread', true, { signal }),
-    api.getDerivedMonthly(filters.start ?? undefined, filters.end ?? undefined, 'date,total,sf_stock_yoy', true, { signal }),
-    api.getDerivedMonthly(filters.start ?? undefined, filters.end ?? undefined, 'date,new_rmb_loan,loan_yoy', true, { signal }),
+    api.getDerivedMonthly(filters.start ?? undefined, filters.end ?? undefined, 'date,total,sf_stock_yoy', false, { signal }),
+    api.getDerivedMonthly(filters.start ?? undefined, filters.end ?? undefined, 'date,new_rmb_loan,loan_yoy,loan_yoy_change', false, { signal }),
     api.getCycle('credit', filters.start ?? undefined, filters.end ?? undefined, { signal }),
   ])
   return {
@@ -40,15 +40,25 @@ const spreadDm = computed<Rec[]>(() => data.value?.spread ?? [])   // date,m2_m1
 const sfDm = computed<Rec[]>(() => data.value?.sf ?? [])           // date,total,sf_stock_yoy → 2016-01
 const ncDm = computed<Rec[]>(() => data.value?.nc ?? [])           // date,new_rmb_loan,loan_yoy → 2009-01
 const credit = computed<CycleFrame | null>(() => data.value?.credit ?? null)
+const latestLoan = computed(() => ncDm.value.findLast((row) => typeof row.new_rmb_loan === 'number'))
+const loanNote = computed(() => {
+  const row = latestLoan.value
+  if (!row || typeof row.loan_yoy === 'number' || typeof row.loan_yoy_change !== 'number') return ''
+  const amount = Math.abs(row.loan_yoy_change).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
+  const change = row.loan_yoy_change === 0 ? '同比持平' : `同比${row.loan_yoy_change < 0 ? '少' : '多'}增 ${amount} 亿元`
+  return `${String(row.date).slice(0, 7)}：${change}。上年同月基数不为正，因此不显示同比百分比。`
+})
 
 // Options are built in computeds (not the template) so each rebuild yields one
 // markRaw'd object that ECharts merges into the live instance (preserves zoom).
 const m2Opt = themedOption(() => (buildCreditM2Chart(m1m2Dm.value, credit.value?.series ?? [])))
-const m1m2Opt = themedOption(() => (buildDualAxisLine(m1m2Dm.value, 'm1_yoy', 'm2_yoy')))
+const m1m2Opt = themedOption(() => buildMultiLine(m1m2Dm.value, [
+  { col: 'm1_yoy', name: 'M1 同比' }, { col: 'm2_yoy', name: 'M2 同比' },
+], '%', 0, '零线'))
 const spreadOpt = themedOption(() => (buildSpreadChart(spreadDm.value, 'm2_m1_spread')))
 const impulseOpt = themedOption(() => (buildCreditImpulseChart(credit.value?.series ?? [])))
-const sfOpt = themedOption(() => (buildBarLineCombo(sfDm.value, 'total', 'sf_stock_yoy', '社融增量', '存量增速', '亿', '%')))
-const ncOpt = themedOption(() => (buildBarLineCombo(ncDm.value, 'new_rmb_loan', 'loan_yoy', '新增贷款', '同比', '亿', '%')))
+const sfOpt = themedOption(() => (buildBarLineCombo(sfDm.value, 'total', 'sf_stock_yoy', '当月社融增量', '近 12 月累计增量同比', '亿元', '%')))
+const ncOpt = themedOption(() => (buildBarLineCombo(ncDm.value, 'new_rmb_loan', 'loan_yoy', '当月新增贷款', '贷款同比', '亿元', '%')))
 </script>
 
 <template>
@@ -56,7 +66,7 @@ const ncOpt = themedOption(() => (buildBarLineCombo(ncDm.value, 'new_rmb_loan', 
     <header>
       <div>
         <h1 class="text-xl font-bold text-text">信用周期</h1>
-        <p class="text-xs text-text-3 mt-1">M2 同比 vs 12 月均线（信贷脉冲）｜社融信贷脉冲</p>
+        <p class="text-xs text-text-3 mt-1">货币增速、信用扩张与实体融资</p>
       </div>
     </header>
 
@@ -78,15 +88,16 @@ const ncOpt = themedOption(() => (buildBarLineCombo(ncDm.value, 'new_rmb_loan', 
       <EChart :option="spreadOpt" height="260px" />
     </GraphCard>
 
-    <GraphCard title="信贷脉冲（社融增量）" tip="社融增量代理信贷脉冲；柱高扩张=信用扩张。" :loading="loading" :error="error" @retry="load">
+    <GraphCard title="信贷脉冲（M2 趋势偏离）" tip="M2 同比减去其 12 月移动平均，单位为百分点；不是社融增量。" :loading="loading" :error="error" @retry="load">
       <EChart :option="impulseOpt" height="260px" />
     </GraphCard>
 
-    <GraphCard title="社会融资规模：增量与存量增速" tip="社融增量（柱，当月新增）+ 社融存量同比增速（线）；央行核心宽信用指标。" :loading="loading" :error="error" @retry="load">
+    <GraphCard title="社会融资规模：增量与增量同比" tip="柱为当月社融增量，线为近 12 个月累计增量同比，不是央行公布的社融存量同比。两轴共用零线。" :loading="loading" :error="error" @retry="load">
       <EChart :option="sfOpt" height="300px" />
     </GraphCard>
 
-    <GraphCard title="新增人民币贷款与同比" tip="新增人民币贷款（柱，当月值）+ 同比增速（线）；实体融资需求强度。" :loading="loading" :error="error" @retry="load">
+    <GraphCard title="新增人民币贷款与同比" tip="柱为当月新增人民币贷款，线为上年同月基数为正时的同比增速。基数为零或负值时，改用亿元比较同比多增或少增；左右轴共用零线。" :loading="loading" :error="error" @retry="load">
+      <p v-if="loanNote" class="mb-2 text-xs text-text-2">{{ loanNote }}</p>
       <EChart :option="ncOpt" height="300px" />
     </GraphCard>
     <SectionCommentary section="credit" />

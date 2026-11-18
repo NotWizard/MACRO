@@ -5,6 +5,13 @@
     "fed_cutting": false,
     "clarity_act_passed": false
   },
+  "arc": {
+    "as_of": "2026-10-30",
+    "assets_b": 1.5,
+    "usdc_volume_min_b": 30,
+    "daily_transactions_approx": 500000,
+    "source": "https://s206.q4cdn.com/265218871/files/doc_earnings/2026/q3/presentation/3Q26-Earnings-Presentation.pdf#page=9"
+  },
   "quarters": [
     {
       "period": "2026Q1",
@@ -54,6 +61,7 @@
       "reserve_revenue_yoy_pct": -7.54,
       "other_revenue_m": 207.264,
       "nonreserve_share_pct": 23.96,
+      "nonreserve_one_off_m": 181.8,
       "eps_actual": 0.84,
       "eps_consensus": null,
       "usdc_circ_end_b": 73.879,

@@ -513,7 +513,7 @@ df_mom = ak.macro_china_cpi_monthly()
 
 ### PPI
 
-项目使用东财 `RPT_ECONOMY_PPI.BASE_SAME` 获取长历史同比，最近 3 期优先取[国家统计局发布归档](https://www.stats.gov.cn/sj/zxfb/)标题明确公布的全国出厂价格同比与环比（`scripts/nbs_release.py`）。2026-11-18 全量实测：生产库保存 2026 年 8、9、10 月的官方环比及 `ppi_mom_source` 链接；[10 月原文](https://www.stats.gov.cn/sj/zxfb/202611/t20261109_1965794.html)环比 +0.7%。
+项目使用东财 `RPT_ECONOMY_PPI.BASE_SAME` 获取长历史同比，最近 3 期优先取[国家统计局发布归档](https://www.stats.gov.cn/sj/zxfb/)标题明确公布的全国出厂价格同比与环比（`scripts/nbs_release.py`）。[中国房地产估价师与房地产经纪人学会的历史表](https://www.cirea.org.cn/content/4776)补实际公布的环比，只填空值；保存逐月 `ppi_mom_source`。2026-11-18 实测环比为 185 期（2011-06 至 2026-10）；[10 月原文](https://www.stats.gov.cn/sj/zxfb/202611/t20261109_1965794.html)环比 +0.7%。
 
 累计保留有来源的实际环比；不从同比重建环比。镜像或归档单独失败不会擦除已留存官方值；两源均无可用结果时保留旧表，见 [取数手册](data-supplement-runbook.md)。
 
@@ -804,7 +804,7 @@ A: 部分接口需要积分，详见：https://tushare.pro/document/1?doc_id=108
 | PMI 分项 | NBS PMI 发布页 | 无；页面解析失败时保留上一份通过闸门的数据 |
 | 房地产活动 | NBS 房地产月度发布页 | 无；逐月归档页共取最近 15 期 |
 | 社零 / 固投 | 东财 `RPT_ECONOMY_TOTAL_RETAIL` / `RPT_ECONOMY_ASSET_INVEST` | 无 |
-| 城镇调查失业率 | NBS 月度 API | 官方发布会已公布的最近三期显式补充值 |
+| 城镇调查失业率 | NBS 月度 API | NBS 国民经济月度发布、就业解读及 [全国](https://www.gotohui.com/gongzi/show-3713271) / [31 大城市](https://www.gotohui.com/gongzi/show-281503) 公开历史表。月度和年平均不混用，历史镜像只补缺失。 |
 
 **新 API 参数备忘**（akshare 内部已使用，备查）：
 - Base URL：`https://data.stats.gov.cn/dg/website/publicrelease/web/external`
@@ -850,6 +850,11 @@ A: 部分接口需要积分，详见：https://tushare.pro/document/1?doc_id=108
 **请求方式**：HTTP GET，返回 JSON 数组 `[{date: <unix ts 字符串>, totalCirculating: {peggedUSD|peggedEUR}, totalCirculatingUSD: {...}}]`。
 
 **注意**：`/stablecoin/{id}` 单币详情端点返回按链拆分的 `chainBalances`（~20MB，直接加总会被跨链桥重复计算），**不要使用**；聚合端点已去重。
+
+### 数据源：Arc 主网
+
+- [DefiLlama Arc](https://defillama.com/chain/arc)：`api.llama.fi/v2/historicalChainTvl/Arc`（DeFi 锁仓）、`stablecoins.llama.fi/stablecoincharts/Arc`（链上美元稳定币市值）、`api.llama.fi/overview/dexs/Arc?excludeTotalDataChartBreakdown=true`（DEX 日成交量）。只存主网日期，DEX 排除尚未结束的 UTC 当日。
+- Circle 财报演示披露链上资产范围、累计主网 USDC 交易量及日交易笔数。此为带观测日的披露快照，不与 DefiLlama 两个资产口径接成日频曲线。
 
 ### 数据源：Treasury.gov 日度收益率曲线 CSV
 

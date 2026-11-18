@@ -22,6 +22,7 @@ import sys
 import threading
 import time
 import types
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -31,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from backend.app.core import crcl_alerts, crcl_collect, crcl_db, locking  # noqa: E402
 
 _COLLECTORS = ("collect_usdc_circ", "collect_stablecoin_total", "collect_eurc_circ",
-               "collect_treasury", "collect_crcl_stock")
+               "collect_treasury", "collect_crcl_stock", "collect_arc")
 
 
 @pytest.fixture
@@ -119,11 +120,43 @@ def test_empty_source_and_valuation_do_not_erase_data_or_report_full_success(tmp
     monkeypatch.setattr(crcl_alerts, "evaluate", lambda _: [])
     result = crcl_collect.collect_all()
     assert result["status"] == "ok"
-    assert "已更新 4 项" in result["msg"] and "估值快照" in result["msg"]
+    assert "已更新 5 项" in result["msg"] and "估值快照" in result["msg"]
     assert {s["source"] for s in result["steps"] if s["status"] == "error"} == {
         "defillama_usdc", "yfinance_valuation"}
     assert crcl_db.get_series("usdc_circ")[-1]["value"] == 123.0
     assert crcl_db.get_snapshots()["valuation"] == original
+
+
+def test_arc_filters_pre_mainnet_and_partial_utc_day_and_keeps_failed_series(tmpdb, monkeypatch):
+    def timestamp(day):
+        return int(datetime.fromisoformat(day).replace(tzinfo=timezone.utc).timestamp())
+
+    class FixedClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 9, 18, tzinfo=tz)
+
+    crcl_db.upsert_points("arc_stablecoins", [("2026-09-16", 50.0)])
+    monkeypatch.setattr(crcl_collect, "datetime", FixedClock)
+
+    def get(url, **_):
+        if "stablecoincharts" in url:
+            raise ValueError("unavailable")
+        if "/dexs/" in url:
+            data = {"totalDataChart": [[timestamp("2026-09-17"), 40], [timestamp("2026-09-18"), 12]]}
+        else:
+            data = [{"date": timestamp(d), "tvl": v} for d, v in
+                    [("2026-09-15", 10), ("2026-09-16", 20), ("2026-09-18", 30)]]
+        return types.SimpleNamespace(raise_for_status=lambda: None, json=lambda: data)
+
+    monkeypatch.setattr(crcl_collect.httpx, "get", get)
+    assert crcl_collect.collect_arc("test") == 3
+    assert [p["date"] for p in crcl_db.get_series("arc_tvl")] == ["2026-09-16", "2026-09-18"]
+    assert [p["date"] for p in crcl_db.get_series("arc_dex_volume")] == ["2026-09-17"]
+    assert crcl_db.get_series("arc_stablecoins")[0]["value"] == 50
+    assert {(l["source"], l["status"]) for l in crcl_db.get_logs(run_id="test")} == {
+        ("arc_tvl", "ok"), ("arc_dex_volume", "ok"), ("arc_stablecoins", "error"),
+    }
 
 
 # ── enforceable timeout for uncontrollable third-party calls ────────────────

@@ -134,7 +134,12 @@ const axisTooltipFormatter = (params: any): string => {
   let html = `<div style="font-weight:600;margin-bottom:4px">${header}</div>`
   for (const p of arr) {
     const v = (Array.isArray(p.value) ? p.value[p.value.length - 1] : p.value)
-    html += `<div>${p.marker ?? ''} ${p.seriesName ?? ''}: <b>${fmtNum(v)}</b></div>`
+    const name = p.seriesName ?? ''
+    const unitMatch = name.match(/ \((%|‰|pp|亿元|亿美元|美元|万人)\)$/)
+    const unit = unitMatch?.[1] ?? ''
+    const value = fmtNum(v)
+    const suffix = value === '—' || !unit ? '' : unit === 'pp' ? ' pp' : unit
+    html += `<div>${p.marker ?? ''} ${unitMatch ? name.slice(0, -unitMatch[0].length) : name}: <b>${value}${suffix}</b></div>`
   }
   return html
 }

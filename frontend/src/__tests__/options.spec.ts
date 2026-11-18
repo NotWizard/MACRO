@@ -27,8 +27,8 @@ describe('options: 结构与配色', () => {
     const opt = buildCreditM2Chart(derivedMonthly, cycleCredit)
     const series = opt.series as Array<{ name: string; markArea?: { data: unknown[] } }>
     expect(series).toHaveLength(2)
-    expect(series[0].name).toBe('M2同比')
-    expect(series[1].name).toBe('M2趋势')
+    expect(series[0].name).toBe('M2同比 (%)')
+    expect(series[1].name).toBe('M2趋势 (%)')
     // easing / tightening 至少 1 段 phase 背景
     expect((series[0].markArea!.data as unknown[]).length).toBeGreaterThan(0)
   })
@@ -81,6 +81,40 @@ describe('options: 结构与配色', () => {
     expect(opt.series[0].data[0].value).toEqual([60, 0, 0])
   })
 
+  it('季度切线超出样本范围时，象限底色仍覆盖到坐标轴边缘', () => {
+    const opt = buildScatterQuadrant([{ date: '2026-01-01', x: 4, y: 5 }], 'x', 'y', 'X', 'Y', 2, 0, {
+      tl: 'stagflation', tr: 'overheating', bl: 'recession', br: 'recovery',
+    }) as {
+      xAxis: { min: number; max: number }; yAxis: { min: number; max: number }
+      series: Array<{ markArea?: { data: Array<Array<{ coord: number[] }>> } }>
+    }
+    const areas = opt.series.at(-1)!.markArea!.data
+    expect(areas).toHaveLength(4)
+    expect(areas[1][0].coord).toEqual([opt.xAxis.min, 2])
+    expect(areas[2][1].coord).toEqual([opt.xAxis.max, 2])
+    expect(areas[3][0].coord).toEqual([opt.xAxis.min, opt.yAxis.min])
+    expect(areas[0][1].coord).toEqual([opt.xAxis.max, opt.yAxis.max])
+  })
+
+  it('CPI/PPI 共用百分比轴：保留单边历史与内部空值，去掉尾部空月', () => {
+    const opt = buildMultiLine([
+      { date: '2026-08-01', cpi: 2, ppi: null },
+      { date: '2026-09-01', cpi: null, ppi: -1 },
+      { date: '2026-10-01', cpi: 3, ppi: -0.5 },
+      { date: '2026-11-01', cpi: null, ppi: null },
+    ], [{ col: 'cpi', name: 'CPI 同比' }, { col: 'ppi', name: 'PPI 同比' }], '%', 0) as {
+      xAxis: { data: string[] }; yAxis: { name: string }; series: LineSeriesOption[]
+      tooltip: { formatter: (items: unknown[]) => string }
+    }
+    expect(opt.xAxis.data).toEqual(['2026-08-01', '2026-09-01', '2026-10-01'])
+    expect(opt.yAxis.name).toBe('%')
+    expect(opt.series[0].data).toEqual([2, null, 3])
+    expect(opt.series[0].connectNulls).toBe(false)
+    const html = opt.tooltip.formatter(opt.series.map(({ name, data }) => ({ seriesName: name, value: data?.[0] })))
+    expect(html).toContain('CPI 同比: <b>2.00%</b>')
+    expect(html).toContain('PPI 同比: <b>—</b>')
+  })
+
   it('buildDualAxisLine / buildBarLineCombo：两个 yAxis 两个 series', () => {
     const dual = buildDualAxisLine(derivedMonthly, 'cpi_yoy', 'ppi_yoy') as { yAxis: unknown[]; series: unknown[] }
     expect(dual.yAxis).toHaveLength(2); expect(dual.series).toHaveLength(2)
@@ -95,5 +129,20 @@ describe('options: 结构与配色', () => {
     const sp = buildSpreadChart(derivedMonthly, 'm2_m1_spread') as { series: Array<{ type: string; markLine: { data: Array<{ yAxis: number }> } }> }
     expect(sp.series[0].type).toBe('line')
     expect(sp.series[0].markLine.data[0].yAxis).toBe(0)   // 默认零线
+  })
+
+  it('柱线图左右轴共用零点但保持独立量纲；负基数同比空值不连线', () => {
+    const opt = buildBarLineCombo([
+      { date: '2026-08', amount: 900, yoy: -50 },
+      { date: '2026-09', amount: 400, yoy: 25 },
+      { date: '2026-10', amount: -5846, yoy: null },
+    ], 'amount', 'yoy', '贷款', '同比', '亿元', '%') as {
+      yAxis: Array<{ min: number; max: number }>
+      series: LineSeriesOption[]
+    }
+    const [left, right] = opt.yAxis
+    expect(-left.min / (left.max - left.min)).toBeCloseTo(-right.min / (right.max - right.min))
+    expect(left.min).toBeLessThanOrEqual(-5846)
+    expect(opt.series[1]).toMatchObject({ name: '同比 (%)', data: [-50, 25, null], connectNulls: false })
   })
 })

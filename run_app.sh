@@ -134,7 +134,8 @@ API_PID=$!
 # 等待就绪：轮询 /health；超时则打印日志并以非零码退出（绝不打印成功横幅）。
 READY=0
 for _ in $(seq 1 30); do
-  if curl -sf "http://localhost:$PORT_API/health" >/dev/null 2>&1; then
+  # This is an IPv4 loopback probe: ignore ~/.curlrc and configured proxies.
+  if curl -q --noproxy '*' --max-time 2 -sf "http://127.0.0.1:$PORT_API/health" >/dev/null 2>&1; then
     READY=1; break
   fi
   kill -0 "$API_PID" 2>/dev/null || break   # uvicorn 已退出，停止空等

@@ -22,6 +22,7 @@ const canRefresh = computed(() => refreshKind.value !== null)
 // A run started elsewhere still owns the button — never allow two collections.
 const busyElsewhere = computed(() => refresh.running && refresh.kind !== refreshKind.value)
 const runningHere = computed(() => refresh.running && refresh.kind === refreshKind.value)
+const lastResult = computed(() => refreshKind.value === 'crcl' ? refresh.lastCrclResult : refreshKind.value === 'macro' ? refresh.lastResult : null)
 
 function trigger() {
   const k = refreshKind.value
@@ -31,12 +32,12 @@ function trigger() {
 </script>
 
 <template>
-  <div class="sticky top-0 z-[110] flex items-center gap-4 px-6 py-2.5 bg-surface/80 backdrop-blur border-b border-border">
+  <div class="sticky top-0 z-[110] flex flex-wrap items-center gap-x-2 gap-y-2 px-4 py-2 bg-surface/80 backdrop-blur border-b border-border sm:flex-nowrap sm:gap-4 sm:px-6 sm:py-2.5">
     <!-- GLOBAL date-range presets: one change links every chart on every page -->
     <div v-if="showDateFilter" class="flex items-center rounded-lg border border-border p-0.5 gap-0.5" role="group" aria-label="日期范围">
       <button
         v-for="p in presets" :key="p"
-        class="px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors duration-150 whitespace-nowrap"
+        class="px-2 sm:px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors duration-150 whitespace-nowrap"
         :class="filters.preset === p
           ? 'bg-accent-soft text-accent'
           : 'text-text-3 hover:text-text-2'"
@@ -44,13 +45,13 @@ function trigger() {
         @click="filters.applyPreset(p)"
       >{{ p === 'ALL' ? '全部' : p }}</button>
     </div>
-    <div v-else class="text-[11px] text-text-4">本页数据不受全局日期范围影响</div>
+    <div v-else class="hidden lg:block shrink-0 text-[11px] text-text-3">本页数据不受全局日期范围影响</div>
 
-    <div class="w-px h-4 bg-border" />
+    <div v-if="showDateFilter" class="hidden sm:block shrink-0 w-px h-4 bg-border" />
 
     <!-- 亮/暗主题切换 -->
     <button
-      class="w-7 h-7 flex items-center justify-center rounded-lg border border-border text-text-3 hover:text-text hover:border-border-hi transition-colors duration-150"
+      class="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg border border-border text-text-3 hover:text-text hover:border-border-hi transition-colors duration-150"
       :aria-label="themeMode === 'dark' ? '切换为亮色主题' : '切换为暗色主题'"
       :title="themeMode === 'dark' ? '切换为亮色主题' : '切换为暗色主题'"
       @click="toggleTheme()"
@@ -58,8 +59,9 @@ function trigger() {
       <span aria-hidden="true" class="text-[13px] leading-none">{{ themeMode === 'dark' ? '☀' : '☾' }}</span>
     </button>
 
-    <HealthLight />
+    <HealthLight v-if="refreshKind === 'macro'" />
 
+    <div v-if="showDateFilter && canRefresh" class="basis-full h-0 -my-1 sm:hidden" aria-hidden="true" />
     <button
       v-if="canRefresh"
       class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-150 disabled:cursor-not-allowed active:scale-[0.98] whitespace-nowrap shrink-0"
@@ -82,8 +84,8 @@ function trigger() {
     <div v-if="refresh.running" class="flex-1 max-w-[200px] h-1 bg-white/[0.06] rounded-full overflow-hidden" role="progressbar" :aria-valuenow="Math.round(refresh.progress*100)" aria-valuemin="0" aria-valuemax="100">
       <div class="h-full bg-accent rounded-full transition-all duration-200" :style="{ width: (refresh.progress * 100).toFixed(0) + '%' }" />
     </div>
-    <div v-else-if="refresh.lastResult" role="status" aria-live="polite" class="text-[11px] text-text-4 truncate">
-      {{ refresh.lastResult.msg }}{{ refresh.lastResult.ts ? ' · ' + refresh.lastResult.ts : '' }}
+    <div v-else-if="lastResult" role="status" aria-live="polite" class="min-w-0 text-[11px] text-text-3 truncate">
+      {{ lastResult.msg }}{{ lastResult.ts ? ' · ' + lastResult.ts.replace('T', ' ') : '' }}
     </div>
   </div>
 </template>

@@ -12,6 +12,7 @@ const props = withDefaults(defineProps<{
   label: string
   value: number | null
   suffix?: string
+  period?: string | null
   accent?: boolean
   tip?: string
   deltas?: TileDelta[]
@@ -28,6 +29,7 @@ const display = useCountUp(toRef(() => props.value), 600, props.digits)
     <div class="text-[26px] font-extrabold tnum leading-tight mt-1.5" :class="accent ? 'text-accent' : 'text-text'">
       {{ display }}<span v-if="suffix" class="text-[13px] font-medium text-text-3 ml-0.5">{{ suffix }}</span>
     </div>
+    <div v-if="period" class="mt-1 text-[11px] tnum text-text-3">观测期 {{ period }}</div>
     <div v-if="deltas?.length" class="flex flex-wrap gap-x-2.5 gap-y-0.5 mt-1.5 text-[10px] tnum leading-tight">
       <span
         v-for="(d, i) in deltas"

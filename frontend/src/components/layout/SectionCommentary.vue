@@ -36,7 +36,7 @@ const visible = computed(() => {
   >
     <div class="flex items-center gap-2 mb-2">
       <div class="text-xs text-text-3 uppercase tracking-wide">AI 评论 · {{ LABELS[section] }}</div>
-      <span v-if="data.status === 'ok' && data.stale" class="text-xs px-1.5 py-0.5 rounded bg-warn-soft text-warn">数据已更新</span>
+      <span v-if="data.stale" class="text-xs px-1.5 py-0.5 rounded bg-warn-soft text-warn">历史分析</span>
     </div>
 
     <!-- 状态容器：role=status 向屏幕阅读器通告 generating→ok/error 等状态切换（同 CommentaryCard） -->
@@ -56,8 +56,11 @@ const visible = computed(() => {
         {{ data.msg || '评论加载失败' }}
       </div>
       <template v-else>
-        <!-- ok：板块文本；fetch 失败有 last-good 时保留文本，msg 作附注 -->
-        <div class="text-sm text-text-2 leading-relaxed"><MdLiteText :text="text" /></div>
+        <details v-if="data.stale" class="text-sm text-text-2">
+          <summary class="cursor-pointer">展开旧版评论（不适用于本期）</summary>
+          <div class="mt-2 leading-relaxed"><MdLiteText :text="text" /></div>
+        </details>
+        <div v-else class="text-sm text-text-2 leading-relaxed"><MdLiteText :text="text" /></div>
         <div v-if="data.msg" class="text-xs text-down mt-2">{{ data.msg }}</div>
       </template>
     </div>

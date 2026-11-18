@@ -84,8 +84,29 @@ def test_valid_fundamentals_roundtrip(tmp_path, monkeypatch):
     _point_fundamentals(monkeypatch, _write(tmp_path, "f.json", VALID_FUNDAMENTALS))
     res = crcl.fundamentals()
     assert "error" not in res
-    # success path returns the ORIGINAL object unchanged (no reserialization)
-    assert res == VALID_FUNDAMENTALS
+    for quarter in res["quarters"]:
+        assert quarter.pop("adjusted_nonreserve_share_pct") == quarter["nonreserve_share_pct"]
+    assert res == VALID_FUNDAMENTALS  # originals and unknown editorial metadata survive
+
+
+def test_one_off_adjustment_is_shared_by_api_and_live_alerts(tmp_path, monkeypatch):
+    recent = _deepcopy(VALID_FUNDAMENTALS)
+    recent["flags"]["clarity_act_passed"] = True
+    recent["quarters"].append({"period": "2026Q3", "nonreserve_share_pct": 23.96,
+                               "total_revenue_m": 864.888, "other_revenue_m": 207.264,
+                               "nonreserve_one_off_m": 181.8})
+    _point_fundamentals(monkeypatch, _write(tmp_path, "f.json", recent))
+    monkeypatch.setattr(crcl_alerts, "_usdc_yoy", lambda: 25)
+    monkeypatch.setattr(crcl_db, "CRCL_DB_PATH", tmp_path / "crcl.db")
+    crcl_db.ensure_schema()
+    crcl_db.add_alert("c_thesis_confirmed", "confirm", "triggered", "旧口径")
+
+    q = crcl.fundamentals()["quarters"][-1]
+    assert q["nonreserve_share_pct"] == 23.96
+    assert q["adjusted_nonreserve_share_pct"] == pytest.approx(3.727777, abs=1e-5)
+    rule = next(x for x in crcl.alerts()["rules"] if x["rule"] == "c_thesis_confirmed")
+    assert rule["status"] == "ok" and "3.73%" in rule["message"]
+    assert crcl_db.get_rule_status()["c_thesis_confirmed"]["status"] == "triggered"
 
 
 # --------------------------- number-as-string ------------------------------

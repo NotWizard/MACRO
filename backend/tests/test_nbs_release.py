@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from nbs_release import (  # noqa: E402
+    parse_employment_release,
     parse_pmi_release,
     parse_real_estate_release,
     release_month,
@@ -46,6 +47,17 @@ def test_release_month_handles_cumulative_annual_and_half_year_titles():
     assert release_month("2026年1—2月份全国房地产市场基本情况") == "2026-02-01"
     assert release_month("2025年上半年全国房地产市场基本情况") == "2025-06-01"
     assert release_month("2025年全国房地产市场基本情况") == "2025-12-01"
+
+
+def test_employment_migrated_release_uses_original_dateline_and_monthly_rates():
+    page = """<html><meta charset="utf-8"><body>
+      <p>2022/11/15 10:00</p>
+      <p>1-10月份，全国城镇调查失业率平均值为5.6%。10月份，全国城镇调查失业率为5.5%。
+      31个大城市城镇调查失业率为6.0%。</p></body></html>"""
+    assert parse_employment_release(page.encode(), "10月份国民经济保持恢复态势",
+                                    "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1901651.html") == [
+        {"date": "2022-10-01", "unemployment_rate": 5.5, "unemployment_31_city": 6.0}
+    ]
 
 
 def test_parse_real_estate_release_maps_cumulative_values_and_yoy():

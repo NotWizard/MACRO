@@ -10,7 +10,7 @@ const titleRef = ref<HTMLElement | null>(null)
 
 const reportReady = computed(() => !!data.value.report)
 const generatedAt = computed(() => data.value.provenance?.generated_at ?? '—')
-const dataAsOf = computed(() => data.value.provenance?.data_as_of?.derived_monthly ?? '—')
+const dataAsOf = computed(() => data.value.provenance?.data_as_of?.macro_score ?? '—')
 
 function close() {
   router.replace('/overview')
@@ -37,14 +37,13 @@ onUnmounted(() => {
     <header class="sticky top-0 z-30 border-b border-border bg-bg/95 backdrop-blur px-6 py-3">
       <div class="max-w-[980px] mx-auto flex items-center gap-4">
         <div class="min-w-0 flex-1">
-          <div class="text-[10px] font-semibold tracking-[0.18em] text-accent">MACRO REPORT</div>
           <h1 ref="titleRef" tabindex="-1" class="mt-0.5 text-base font-semibold text-text outline-none">
-            中国宏观分析报告
+            {{ data.stale ? '中国宏观分析报告 · 历史版本' : '中国宏观分析报告' }}
           </h1>
         </div>
         <div class="hidden sm:flex items-center gap-3 text-[11px] text-text-3 tnum">
           <span>生成 {{ generatedAt }}</span>
-          <span>数据截至 {{ dataAsOf }}</span>
+          <span>评分基准月 {{ dataAsOf }}</span>
           <span v-if="data.provenance?.model">{{ data.provenance.model }}</span>
         </div>
         <button
@@ -77,8 +76,8 @@ onUnmounted(() => {
           <div v-if="data.status === 'generating'" class="mb-5 text-xs px-2.5 py-1 rounded bg-accent-soft text-accent">
             新版本正在生成，当前显示上一版报告。
           </div>
-          <div v-if="data.stale" class="mb-5 text-xs px-2.5 py-1 rounded bg-warn-soft text-warn">
-            数据或配置已更新，这份报告需要重新生成。
+          <div v-if="data.stale" class="mb-5 text-sm px-3 py-2 rounded-lg border border-border bg-warn-soft text-warn" role="status">
+            这份报告与当前数据或配置不一致，仅供回看。评分基准月：{{ dataAsOf }}。
           </div>
           <div class="bg-card border border-border rounded-2xl px-8 py-9 sm:px-12 sm:py-11">
             <ReportMarkdown :text="data.report" />
