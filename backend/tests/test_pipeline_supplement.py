@@ -92,7 +92,7 @@ def test_nifd_data_is_a_single_source_shared_by_01_and_03():
     assert not hasattr(mod01, "_NIFD_DATA")      # old per-file literal is gone
     df = canon()
     assert list(df.columns) == nifd_leverage.COLUMNS
-    assert len(df) == len(nifd_leverage.NIFD_DATA) == 6
+    assert list(df["date"]) == [row[0] for row in nifd_leverage.NIFD_DATA]
 
 
 # ── P-M8: 03 goes through the validated staging swap ──────────────────────────
@@ -113,14 +113,14 @@ def test_supplement_goes_through_staging_indexes_and_recomputes_derived(tmp_path
 
     n = mod.supplement(**p)
 
-    assert n == 6
+    assert n == len(nifd_leverage.NIFD_DATA)
     assert calls == ["derived"]
     assert not p["staging_path"].exists()        # consumed by the atomic swap
 
     conn = sqlite3.connect(p["db_path"])
     lev = set(pd.read_sql("SELECT date FROM leverage", conn)["date"])
-    assert {"2025-03-01", "2026-06-01"} <= lev
-    assert len(lev) == len(QDATES) + 6
+    assert {row[0] for row in nifd_leverage.NIFD_DATA} <= lev
+    assert len(lev) == len(QDATES) + n
     idx = {r[0] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='leverage'")}
     assert "ux_leverage_date" in idx

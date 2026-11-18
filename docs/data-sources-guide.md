@@ -1,5 +1,7 @@
 # 金融数据源接入参考手册
 
+> 更新宏观与 Circle 时，以[宏观经济与 Circle 数据更新手册](data-supplement-runbook.md)为唯一执行入口；本文件保留接口细节和带日期的实测记录。
+
 > 按数据类型分类的数据源参考文档。每类数据说明：数据源、请求方式、返回字段、使用示例。
 
 ---
@@ -511,11 +513,13 @@ df_mom = ak.macro_china_cpi_monthly()
 
 ### PPI
 
-项目使用东财 `RPT_ECONOMY_PPI.BASE_SAME` 获取长历史同比，最近 3 期优先取[国家统计局发布归档](https://www.stats.gov.cn/sj/zxfb/)标题明确公布的全国出厂价格同比与环比（`scripts/nbs_release.py`）。2026-11-18 只读实测：归档返回 2026 年 8、9、10 月三期，`ppi_mom_source` 保存链接；[10 月原文](https://www.stats.gov.cn/sj/zxfb/202611/t20261109_1965794.html)环比 +0.7%。
+项目使用东财 `RPT_ECONOMY_PPI.BASE_SAME` 获取长历史同比，最近 3 期优先取[国家统计局发布归档](https://www.stats.gov.cn/sj/zxfb/)标题明确公布的全国出厂价格同比与环比（`scripts/nbs_release.py`）。2026-11-18 全量实测：生产库保存 2026 年 8、9、10 月的官方环比及 `ppi_mom_source` 链接；[10 月原文](https://www.stats.gov.cn/sj/zxfb/202611/t20261109_1965794.html)环比 +0.7%。
 
 累计保留有来源的实际环比；不从同比重建环比。镜像或归档单独失败不会擦除已留存官方值；两源均无可用结果时保留旧表，见 [取数手册](data-supplement-runbook.md)。
 
 ### PMI
+
+2026-11-18 实测：官方制造/非制造 PMI 已到 10 月；RatingDog 的 10 月发布日日历可确认，但本轮未取得两份发布原文，生产保留到 9 月，不用综合指数代填。
 
 ```python
 import akshare as ak
@@ -541,6 +545,8 @@ df = ak.macro_china_lpr()
 ```
 
 ### 社会融资规模
+
+2026-11-18 实测：AKShare 镜像因 TLS 常量不可用未返回数据；[央行 2026 年 10 月增量 XLSX](https://www.pbc.gov.cn/diaochatongjisi/attachDir/2026/11/2026111318073484632.xlsx) 可读，但月份列混用数值和文本。共用解析器支持两者后，经 04 入库，10 月总增量 11429 亿元、对实体经济人民币贷款 −5846 亿元。
 
 ```python
 import akshare as ak
@@ -600,6 +606,7 @@ NIFD（国家金融与发展实验室）按季度发布宏观杠杆率报告，�
 | 2025Q3 | 2025-10-24 | http://www.nifd.cn/SeriesReport/Details/4800 |
 | 2025Q4 | 2026-01-26 | http://www.nifd.cn/SeriesReport/Details/4851 |
 | 2026Q1 | 2026-04-21 | http://www.nifd.cn/SeriesReport/Details/4896 |
+| 2026Q3 | 2026-11-08（刊载日） | [NIFD/CNBS 报告作者发布稿](https://www.yicai.com/news/103431396.html)，CNBS 断连后经 03 补入 |
 
 #### 补充与刷新保护
 
@@ -831,7 +838,7 @@ A: 部分接口需要积分，详见：https://tushare.pro/document/1?doc_id=108
 ## 十二、CRCL 监控数据源（海外：稳定币 / 美债 / 美股）
 
 > 服务于 `/crcl-monitor` 页面（Circle 投资论点追踪）。全部免费、无需 API key。
-> 采集代码：`backend/app/core/crcl_collect.py`；手工补充规则见 `docs/data-supplement-runbook.md` §9。
+> 采集代码：`backend/app/core/crcl_collect.py`；官方资料补数见[更新手册第 4 节](data-supplement-runbook.md#4-circle先核对财报与事件再采集公开序列)。
 
 ### 数据源：DefiLlama Stablecoins API
 

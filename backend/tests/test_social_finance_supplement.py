@@ -17,12 +17,14 @@ Run:  .venv312/bin/python -m pytest backend/tests/test_social_finance_supplement
 
 import datetime
 import importlib.util
+import io
 import sqlite3
 import sys
 from pathlib import Path
 
 import pandas as pd
 import pytest
+import requests
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
@@ -31,6 +33,33 @@ sys.path.insert(0, str(SCRIPTS))
 
 SF_COLS = ["date", "total", "rmb_loan", "entrusted_loan", "trust_loan",
            "acceptance_bill", "corp_bond", "equity"]
+
+
+def test_pbc_workbook_accepts_numeric_and_text_months(monkeypatch):
+    import pbc_shrzgm
+
+    book = io.BytesIO()
+    pd.DataFrame([
+        ["社会融资规模增量统计表", None, None],
+        ["项目", "社会融资规模增量", "人民币贷款"],
+        [2025.1, 10000, 100],
+        ["2026.10", 11429, -5846],
+        [2026.11, None, None],
+        ["注：流量，非存量", None, None],
+    ]).to_excel(book, header=False, index=False, engine="openpyxl")
+
+    def get(url, **kwargs):
+        response = requests.Response()
+        response.status_code = 200
+        response._content = (book.getvalue() if url.endswith(".xlsx")
+                             else b'<a href="attachDir/flow.xlsx">xlsx</a>')
+        return response
+
+    monkeypatch.setattr(pbc_shrzgm.requests, "get", get)
+    out = pbc_shrzgm.pbc_shrzgm_supplement_df().set_index("date")
+    assert out["total"].dropna().to_dict() == {"2025-10-01": 10000, "2026-10-01": 11429}
+    assert out.loc["2026-10-01", "rmb_loan"] == -5846
+    assert pd.isna(out.loc["2026-11-01", "total"])
 
 
 def _load_04():

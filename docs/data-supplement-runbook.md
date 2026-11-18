@@ -1,246 +1,134 @@
-# 数据补充运行手册（Data Supplement Runbook）
+# 宏观经济与 Circle 数据更新手册
 
-> 目的：列出所有「靠手工 / Agent 补充」的数据，写明**从哪取 / 怎么取 / 取什么**，
-> 供 Agent（Claude Code / Codex）按本手册定期补充进数据库。
->
-> **为什么不全自动**：NIFD（国家金融与发展实验室）无公开 API，首页/列表页 JS 渲染、
-> 无法稳定发现最新报告期，详情页数字解析易碎 → 硬塞进自动刷新易污染数据。
-> 故采用「Agent 读取官方报告 → 提取数值 → 走闸门入库」的半自动方式。
+给接手更新的 Agent：从项目根目录执行本手册即可。范围是**中国宏观看板的 19 张原始表及其衍生数据**，和 **Circle（CRCL）的行情、稳定币、美债、估值、季报与事件**。AI 算力不在本手册范围内；不要调用算力采集或修改其数据库、事实、报告。本流程不新增总控脚本，也不要求安装定时任务。
 
----
+## 1. 开始前：记住旧库的状态
 
-## 0. 硬编码数据清单（Hardcoded Data Inventory）
+- 使用项目已配置的 Python 虚拟环境。下面以 .venv312 为例；若旧环境缺包，用该环境的 Python 执行 `-m pip install -r requirements.txt`。Apple Silicon 若出现 pyexpat / Expat 符号错误，执行 `export DYLD_LIBRARY_PATH=/opt/homebrew/opt/expat/lib`（先确认路径存在）；不要改系统 Python。
+- 记录 `data/last_run.json` 的 `ts`、`committed`、`derived`、`tables` 和 `sources`。按第 5 节的只读命令取基线。首次建库没有旧值，记为「无基线」。
+- 同一时刻只跑一个宏观写入任务：01、02、03、04 和网页宏观刷新不并行；Circle CLI 不与 Circle 启动采集或网页采集并跑。遇到 busy 先等在跑的任务结束，不删锁、不绕过闸门。
+- 查询时分别记录**观察期、发布日期和检查时间**。官方网页、PDF、XLSX 或发布者本人转载均要打开原文确认，保存可定位的链接、数值、单位与口径。搜索摘要、预告值、滚动表的空月份、媒体预测都不入库；未知保留空值。
 
-### 交接：让 Agent 实际更新一次（不含 AI 算力）
+## 2. 宏观：跑全量，再按源的可用性补数
 
-1. **先核对基线**：从项目根目录读 `data/last_run.json`，记下现轮 `ts`；打开数据库时用 `sqlite3 -readonly data/macro_data.db`，按表记下 `COUNT(*)`、`MAX(date)`，以及本轮关心字段的 `MAX(date) WHERE 字段 IS NOT NULL`。单看表最大日期会掩盖某个分项未更新。数据与页面映射见 [覆盖审计](macro-data-coverage.md)。
-2. **查官方发布，再改显式补充**：NIFD → `scripts/nifd_leverage.py:NIFD_DATA`；ISM、RatingDog PMI、财政收支、失业率 → 本手册表格列出的 `01_fetch_data.py` 补充常量；CRCL 季报与事件 → §9.2。记录原文链接、发布日期、参考期、单位和修改内容；未发布/未核实留空，日期到了也不自动把事件标为已发生。
-3. **只跑一轮全量**：从项目根目录运行 `.venv312/bin/python scripts/01_fetch_data.py --full`；Apple Silicon 如果报 Expat 符号错误，先设置 `DYLD_LIBRARY_PATH=/opt/homebrew/opt/expat/lib`。网页「刷新数据」和无参数 CLI 只是发布窗口内的增量，不是全量；定向重试用 `--tables 表名 [表名 ...]`，不受日历限制。01 已经把原始与衍生表一起重算提交，不再跟跑 02。不要与 01/02/03/04 或网页宏观刷新并行。
-4. **按状态验收**：退出 0 = 本轮选中的表通过闸门（不代表每张表都有新月份）；2 = 至少一表保留旧数据，看 `committed` 是部分落库还是完全未落库；3 = 衍生失败，全部未落库。比对新的 manifest 时间、`tables` / `sources`、库内最新有效期并跑 `PRAGMA integrity_check;`，逐表报告推进、未发布、源失败或闸门拒收。定向重试会生成自己的 manifest，先留存全量结果摘要。03/04 独立补充不更新 01 的 manifest，以脚本输出和库内实际期数核验。网站已打开时刷新页面读取 CLI 写入的库；只有页面/API 发起并成功落库的宏观刷新会自动触发 AI 评论重算。
-5. **CRCL 单独运行**：在 CRCL 页点「采集 CRCL」，检查返回成功/失败项、各日序列末期及估值时间，再复核手工 JSON。宏观的 19 张表更新不包含 CRCL，更不包含算力。
-
-### 显式补充数据
-
-全仓排查（scripts/ analysis/ backend/ frontend/）后，**硬编码的时序数据**包括：
-
-| 指标 | 硬编码位置 | 内容 | 当前到 | 更新方式 |
-|---|---|---|---|---|
-| NIFD 宏观杠杆率（居民/非金/政府/中央/地方/实体） | `scripts/nifd_leverage.py` `NIFD_DATA`（单一真相源，`01`/`03` 均 import） | 季度杠杆率(%) | 2026-06 (2026Q2) | §1 Agent 补充 |
-| 美国 ISM 制造业 PMI | `scripts/01_fetch_data.py` `_ISM_SUPPLEMENT`（Jin10 源冻结于 2025-08 后的官方值补充表） | 月度 PMI（点） | 2026-09 | §7 Agent 逐月补官方值后跑 01 |
-| RatingDog（原财新）制造/服务 PMI | `scripts/01_fetch_data.py` `_RATINGDOG_SUPPLEMENT` | 月度 PMI（点） | 2026-06 至 2026-09 | S&P Global 发布页（Investing.com 镜像）逐月复核；§10 |
-| 2026-09 国家财政预算收支 | `scripts/01_fetch_data.py` `_MOF_SUPPLEMENT` | 累计亿元 / 累计同比 % | 2026-09 | 财政部前三季度发布；§10 |
-| 全国/31 城调查失业率 | `scripts/01_fetch_data.py` `_UNEMPLOYMENT_SUPPLEMENT` | 月度 % | 2026-07 至 2026-09 | NBS 月度发布会；§10 |
-
-**非时序数据（配置/分类逻辑，无需定期更新）**：
-- 城市清单 `CITIES`（`frontend/src/pages/RealEstate.vue`）/ `_DEFAULT_CITIES`（`backend/app/api/v1/real_estate.py`）/ `01_fetch_data.py` 房价城市列表 —— 配置。
-- `analysis/cycle_*.py`、`real_estate.py` 的 `conditions`/`choices`/`scores` —— 周期分类阈值/逻辑配置。
-
----
-
-## 1. NIFD 宏观杠杆率（季度）—— 主要手工项
-
-| 项 | 内容 |
-|---|---|
-| 目标表 | `leverage`（列：`date, household, non_fin_corp, gov_total, gov_central, gov_local, real_economy, fin_asset, fin_liability`） |
-| 代码位置 | `scripts/nifd_leverage.py` 的 `NIFD_DATA`（单一真相源；`01`/`03` 均 `from nifd_leverage import nifd_supplement_df`） |
-| 当前补到 | **2026-06（2026Q2）** |
-| 数据源 | NIFD 季报 `http://www.nifd.cn/SeriesReport/Details/<id>`（实测可抓、含"杠杆率"） |
-| 已知报告期 URL | 2025Q1=4712、2025Q2=4728、2025Q3=4800、2025Q4=4851、2026Q1=4896、2026Q2=4976；**2026Q3 及以后**需到 NIFD 网站「系列报告→宏观杠杆率」找最新 id（约季后 1 个月发布） |
-
-**取什么**（%）：居民部门、非金融企业部门、政府部门、中央政府、地方政府、实体经济部门（`fin_asset`/`fin_liability` 可缺，填 None）。
-
-**Agent 补充步骤**：
-1. 到 NIFD「系列报告→宏观杠杆率」找**最新一期**季报 URL（取最新 id）。
-2. 读取报告页正文，提取上述 6 个部门杠杆率数值。
-3. 在 `scripts/nifd_leverage.py` 的 `NIFD_DATA` 末尾追加一行：
-   `("YYYY-MM-01", household, non_fin_corp, gov_total, gov_central, gov_local, real_economy, fin_asset, fin_liability)`
-   （`MM` = 季末月 03/06/09/12；如 2026Q2 → `2026-06-01`）。
-4. 只补 NIFD 时跑 `.venv312/bin/python scripts/03_supplement_leverage.py`；若要连同 CNBS 重新比对，跑 `.venv312/bin/python scripts/01_fetch_data.py --tables leverage`。两者都已包含暂存校验与衍生重算。
-5. 验证：`leverage` 表 `MAX(date)` 已更新；`derived_quarterly.hh_debt_to_income` 末行非空。
-
-**校验规则**（防录错）：
-- 各部门值应在合理区间：household 50–70、non_fin_corp 150–190、gov_total 50–75、real_economy 290–320。
-- 宏观杠杆率 ≈ 居民 + 非金 + 政府（±1pp）。
-- 单季变化应在 ±几 pp 内（异常大跳变需人工复核）。
-
----
-
-## 2. 居民可支配收入 `household_income`（NBS，年度）—— 现已自动，监控
-
-| 项 | 内容 |
-|---|---|
-| 目标表 | `household_income`（`income_per_capita, population_10k, income_abs`） |
-| 源 | akshare `macro_china_nbs_nation`（NBS）。现到 2025（年度，正常）。 |
-| 若 NBS 再封 | 参考 `01_fetch_data.py` 中 NBS 目录路径修正（「人民生活→全国居民人均收入情况」）；备选 World Bank。 |
-| 取什么 | 人均可支配收入、总人口 → 计算 `income_abs`。 |
-
-> 年度数据，NBS 每年初发布上年值；无需每季度补充。
-
----
-
-## 3. GDP 季度参考期
-
-| 项 | 内容 |
-|---|---|
-| 现状 | 累计季度序列，`date` 用该季首月：Q1→01-01、Q2→04-01、Q3→07-01、全年→10-01；不是发布日期。 |
-| 源 | AKShare `macro_china_gdp`，采集脚本按累计期末季解析；无需另手工录一份。 |
-| 校验 | 看最新季度的累计同比与全年 Q4 锚；债务收入比使用可用全年 GDP，不用 Q1×4。 |
-
----
-
-## 4. PPI 环比 —— 国家统计局实际发布
-
-- `--tables ppi`：东财保留同比长历史，国家统计局发布归档补最近 3 期全国出厂价格实际环比和同比，记录 `ppi_mom_source`。只有同比不能唯一确定环比，首次成功刷新会移除无法追溯到官方环比的旧推算值，缺期留空；之后自动保留已积累的官方环比历史。
-- 如需继续补历史，只能核对官方全国出厂价格、参考月及原文（不是购进价格、累计增速或分行业环比），不能展开同比或用 0 填缺。2026-11-18 只读验证 [2026-10 官方稿](https://www.stats.gov.cn/sj/zxfb/202611/t20261109_1965794.html)：同比 +5.7%、环比 +0.7%，没有因此更新生产库。
-
----
-
-## 5. 社融 `social_finance`（case 2：主源滞后，有备用源）
-
-| 项 | 内容 |
-|---|---|
-| 现状 | DB 到 2026-09；主源 akshare `macro_china_shrzgm`（MOFCOM 镜像）在 Python 3.14 下仍可能因 `ssl.PROTOCOL_TLSv1_2` 缺失失败，`fetch_social_finance` 会先保留 staging 中的完整历史，再合并 PBoC 官方 XLSX 的新月份。 |
-| 备用源 | PBoC 调查统计司 XLSX——**已抽为单一真相源 `scripts/pbc_shrzgm.py`**（主源 01 的 fetch_social_finance 与其共用）。列表页 `http://www.pbc.gov.cn/diaochatongjisi/116219/116319/.../shrzgm/index.html` → 最新 `attachDir/*.xlsx`。 |
-| 独立补充脚本 | `scripts/04_supplement_social_finance.py`——脱离主管线的 CNBS 级联故障（`[Errno 9]`），单独经闸门补齐；主源滞后多期时优先跑它。 |
-| 怎么取 | GET 列表页→正则取最新 xlsx→`pandas.read_excel(header=None)`→数据行约第 11 行起；月份为 float（2026.05→5 月；注意 2026.1==10 月）；列对齐 DB（社会融资规模增量/人民币贷款/委托贷款/信托贷款/未贴现承兑/企业债券/股票）。 |
-| 校验 | 2026.05 total=20293 亿、2026.06=33645 亿（已实测）；仅追加 date>主源max 的行。 |
-| 处理 | 01 自动走主备源；主源不可用或旧于库内、央行又无更新时，保持旧历史并报告保留。确认实际已发布但仍有缺口，再独立跑 04 或按原文排查；不要把空结果报成功。 |
-
----
-
-## 6. GDP 季度（已常态化支持累计季度）
-
-| 项 | 内容 |
-|---|---|
-| 现状 | `gdp` 表含累计季度行（「第1-2季度」→ 末季 04-01 入库），DB 到 2026-04（2026 上半年累计）。 |
-| 源 | akshare `macro_china_gdp` / 东财 `RPT_ECONOMY_GDP`。 |
-| 说明 | `fetch_gdp` 的 `parse_quarter` 已支持累计季度（正则 `^(\d{4})年第(\d)(?:-(\d))?季度`，累计取末季）；`02` 的 `hh_debt_to_income` 年化基数优先用该年 Q4(10月)累计行，当年无 Q4 用上年全年。 |
-
----
-
-## 7. 定期更新窗口与手动触发（供 Agent 手动触发，非定时任务）
-
-> 发布日历只决定普通增量刷新会尝试什么，不是某指标一定已发布的保证。错过窗口或做人工补充验证时用 `--tables` 或 `--full`；本次不要求安装定时任务。
-
-| 频率 | 指标 | 发布窗口（次月） | 触发动作 |
-|---|---|---|---|
-| 月 | M2/新增信贷 (PBoC) | ~10-15 日 | 跑 `01_fetch_data.py` |
-| 月 | 工业 / 社零 / 固投 / 10 城房价跟踪样本（NBS 70 城发布） / 房地产活动 | ~15 日 | 跑 `01_fetch_data.py` |
-| 月 | CPI / PPI / PMI / PMI 分项 | ~9-10 日 / PMI 月末 | 跑 `01_fetch_data.py` |
-| 月 | 社融 | ~15 日（主源滞后时自动走 PBoC XLSX 备用源） | 跑 `01_fetch_data.py` |
-| 月 | LPR | ~20 日 | 跑 `01_fetch_data.py` |
-| 月 | 美国 ISM 制造业 PMI | ~次月首个工作日 | 核对 ISM 官方新闻稿，在 `_ISM_SUPPLEMENT` 按**参考月**补值后跑 `01_fetch_data.py --tables external_demand`；不是录下月发布日期 |
-| 季 | GDP（累计季度）、NIFD | 季度结束后 | GDP 自动采集；NIFD 按 §1 补充 |
-| 季 | Circle 季报拆解 | Circle IR 财报发布后 | 按 §9.2 核对并补 JSON |
-| 年 | 居民收入 / 人口 | 次年公报、WDI 发布后 | 核对两源的不同参考年；年频表可单独运行 `--tables household_income demographics` |
-
----
-
-## 8. 数据获取方式区分（API 直连 vs Agent 网页获取）
-
-> 原则：优先结构化数据；若自动来源滞后、缺值或格式不稳定，Agent 检查发布机构正文/PDF，只录可复核数值。沿用显式补充，不直接改生产库。
-
-| 数据 | 获取方式 | 来源 |
-|---|---|---|
-| M2/M1/M0、新增信贷 | **API** | akshare（新浪/东财） |
-| CPI / PMI / PPI 同比 | **API** | 东财数据中心 `RPT_ECONOMY_*`；PPI 最近几期优先 NBS |
-| PPI 环比 | **官方发布档案** | 解析 NBS 最新 3 期，累积已有官方环比，未覆盖留空 |
-| PMI 分项 | **API / HTML 表格** | NBS `www.stats.gov.cn/sj/zxfb/` 官方发布归档 |
-| GDP（累计季度） | **API** | akshare `macro_china_gdp` |
-| 财政收支 | **API + 官方补充** | NBS 主源；东财 `RPT_ECONOMY_INCOME` + 财政部发布页兜底 |
-| 外需 货物进出口 | **API + 兜底** | NBS 主源；AKShare `macro_china_hgjck()` / 东财海关接口兜底 |
-| 社零 / 固投 | **API** | 东财 `RPT_ECONOMY_TOTAL_RETAIL` / `RPT_ECONOMY_ASSET_INVEST` |
-| 房地产活动 | **HTML 表格** | NBS 月度房地产发布归档（最近 15 期） |
-| 全国/31 城失业率 | **API + 官方补充** | NBS API；最近三期使用发布会公布值 |
-| 社融 | **API** 主源 + **文件下载** 备用 | akshare `shrzgm` + PBoC 调查统计司 XLSX（程序化解析 Excel，非读网页） |
-| 债券收益率 | **API** | 中债信息网直连 |
-| 人口 总人口/城镇化率 | **API** | akshare `macro_china_nbs_nation`（NBS） |
-| 人口 出生率/自然增长率（2025） | **Agent 网页获取** | 《2025年国民经济和社会发展统计公报》stats.gov.cn（Web 搜索读取官方值 5.63‰ / -2.41‰） |
-| 宏观杠杆率 NIFD | **Agent 网页获取** | NIFD 季报 nifd.cn / PDF（录入 `scripts/nifd_leverage.py:NIFD_DATA`） |
-| 美国 ISM 制造业 PMI | **Agent 网页获取** | ISM 官方 / PR Newswire 月度发布（Workflow 逐月读取录入 `_ISM_SUPPLEMENT`） |
-| CRCL 稳定币流通量/总盘/美债收益率/行情估值 | **API** | DefiLlama / Treasury.gov / AKShare / yfinance（启动+手动自动采集，见 §9.1） |
-| CRCL 季报拆解/事件日历/标志位 | **手工 JSON** | Circle 新闻稿/财报会、Fed 日历、立法进展（`data/crcl_fundamentals.json`、`data/crcl_events.json`，见 §9.2） |
-
-**手动触发命令**（项目根目录）：
 ```bash
 .venv312/bin/python scripts/01_fetch_data.py --full
-# 复核手工补充值后，也可只刷相关表：
-.venv312/bin/python scripts/01_fetch_data.py --tables pmi fiscal external_demand domestic_demand
+jq '{ts, committed, derived, tables, sources}' data/last_run.json
 ```
 
-接口方式：本机同源 `GET /api/v1/session` 取得令牌，携带 `X-API-Token` 请求 `POST /api/v1/refresh?full=true`，再订阅 `GET /api/v1/refresh/stream?job_id=…` 直到 `done`；POST 的 `running` 不是落库成功。默认子进程硬超时 1560 秒、取数预算 1500 秒；若环境仍配置旧值 300 秒，全量优先走 CLI 或先确认配置。不要在日志或交接材料粘贴令牌。
+可以先查第 3 节，将当期已核实的显式补充值写进代码，再跑一次全量；若全量已跑过，只定向重跑涉及的表。正常提交会走备份 → 暂存 → 校验 → 衍生计算 → 原子切换，不要再接着跑 02。不要直接对生产 SQLite 执行 UPDATE/INSERT，也不要拿单源短表替换历史。
 
-验收用字段自己的有效期，不以 `MAX(date)`、固定债务比率或 HTTP 200 代替数据正确性。每表可同月修订；最新有效期倒退、无效日期或空源不应覆盖旧表。
+- **0**：本轮尝试的表通过；可能只是同一期重拉或修订。**2**：至少一张表保留旧数据，查看 `committed` 及失败表原因。**3**：衍生失败，暂存整轮丢弃。**1/busy**：通常未取得锁，也可能是其它启动失败，确认日志和 manifest 有没有换到本轮。
+- 记下全量摘要再重试；`--tables` 会覆盖 manifest（例：`.venv312/bin/python scripts/01_fetch_data.py --tables pmi domestic_demand`）。03/04 不写 01 的 manifest，用各自的终端结果和库内值验收。表在 manifest 里没被尝试，与 `kept_previous` 不同。
+- 网页「刷新数据」和无参数 CLI 默认按发布窗口，不代表全量。已有本机服务也可用 `GET /api/v1/session` 获取本地令牌，带 `X-API-Token` 调用 `POST /api/v1/refresh?full=true`，用 `GET /api/v1/refresh/stream?job_id=…` 持续订阅到 `done`。不要把令牌写入日志。CLI 不需要服务，也不会主动触发宏观 AI 评论；网页/API 刷新成功提交时可能自动触发，这是独立流程。
+- 发布窗口只是调度提示：PMI 常在月末、CPI/PPI 次月上旬、央行金融数据与国民经济运行多在次月中旬、LPR 通常是每月 20 日、ISM 是次月首个工作日附近。核对实际公报；收入/人口为年度，GDP/杠杆率为季度，不追填虚构月份。
 
----
+### 19 张表：查哪个机构、验什么
 
-## 9. CRCL 监控体系（Circle）—— API 自动 + 手工 JSON 混合
+| 表 | 自动源与官方核验入口 | 关键口径或失败时的处理 |
+|---|---|---|
+| money_supply | AKShare 月度货币供应量；[中国人民银行](https://www.pbc.gov.cn/) 货币金融统计 | 对比 M0/M1/M2 各自同比最新期；M1 定义变化按官方说明，不用旧口径接算。 |
+| gdp | AKShare/东财；[国家统计局发布](https://www.stats.gov.cn/sj/zxfb/) | 累计季度，日期写累计末季的**首月**（Q3 为 07-01，全年为 10-01）；债务收入比用可用全年 GDP，不拿 Q1×4。 |
+| cpi | AKShare/东财；统计局全国居民消费价格 | 同比、实际环比分开核对，不用同比推环比。 |
+| ppi | 东财同比长历史；统计局最新 3 期原文补同比/环比 | 全国工业生产者**出厂价格**，不是购进价；环比须有 `ppi_mom_source`。无来源的旧推算值会清空；以后自动积累有来源历史，没确认的留空。 |
+| pmi | 东财、AKShare；统计局和 [S&P Global PMI 发布日历](https://www.pmi.spglobal.com/Public/Home/PDF/UK_Rel_Dates)（按实际日期找发布稿；日历没有实绩） | 官方制造/非制造、RatingDog 制造/服务是四条序列，分别核对。旧 AKShare/Jin10 财新序列有中段缺口，不插值。 |
+| pmi_detail | 统计局「中国采购经理指数运行情况」原始两表 | 滚动约 13 期并累积旧期；看生产、新订单、原材料库存、产成品库存等字段，不把非制造业活动混进制造业分项。 |
+| leverage | CNBS 经 AKShare，NIFD 季报补充 | 日期写**季末月**；季度发布后核对六个部门，见第 3 节。 |
+| social_finance | AKShare 镜像；央行调查统计司「社会融资规模增量」XLSX | 按**当月增量**亿元，不用存量或年初至今累计；见第 3 节。 |
+| lpr | 东财；央行/全国银行间同业拆借中心公告 | 1 年期和 5 年期以上，期次按报价月；公告前旧月保留。 |
+| industrial | AKShare/NBS；统计局工业生产发布 | 规上工业增加值；1–2 月合报不能补作两个独立观测。 |
+| domestic_demand | 东财社零、固投；NBS 失业率 API / 国民经济运行原文 | 社零/固投当月与累计分开；全国和 31 城城镇调查失业率分别核实。 |
+| house_price | AKShare 统计局 70 城数据 | 生产表仅跟踪 10 城样本；按日期与城市去重，核验各城市的新房/二手房，不称全国 70 城广度。 |
+| real_estate_activity | 统计局「全国房地产市场基本情况」正文/表格 | 扫最近 15 期并累积旧期；核对累计开发投资、销售额/面积、新开工、竣工、待售、到位资金，不把累计值当单月，1 月通常无独立值。 |
+| household_income | NBS「人民生活→全国居民人均收入情况」及总人口 | 年度全国居民人均可支配收入×总人口；核对 `income_per_capita`、`population_10k`、`income_abs`，不可换成城镇专口径。 |
+| new_credit | AKShare/NBS；央行金融统计数据报告 | 以管线使用的新增人民币贷款定义为准，不等同于社融口径「对实体经济发放的人民币贷款」。 |
+| bond_yield | [中债信息网](https://www.chinabond.com.cn/) 国债收益率曲线 | 10 年期收益率，进行中的月允许是已到日的月度观测，不当完整月。 |
+| demographics | 统计局人口公报优先；[世界银行 WDI](https://data.worldbank.org/country/china) 补长历史/结构 | 年度人口、城镇化、出生率、自然增长率、65 岁及以上占比、抚养比逐字段验收。总人口单位为万人，出生/自然增长率为 ‰，占比为 %；不拿不同源的出生/死亡率随意混算。 |
+| fiscal | NBS 优先，东财收入兜底；[财政部财政数据](https://www.mof.gov.cn/gkml/caizhengshuju/) | 全国一般公共预算累计收入、支出（亿元及累计同比），不是政府性基金；收入有新月不代表支出同月已发布。 |
+| external_demand | NBS 货物进出口，东财海关补空；[ISM 制造业报告](https://www.ismworld.org/supply-management-news-and-reports/reports/ism-pmi-reports/) | 同期同币种，区分当月及累计和美元/人民币口径；美国 ISM 是制造业主指数，不是 S&P PMI 或分项。 |
 
-> 页面：`/crcl-monitor`；规范：`docs/CRCL监控体系.md`；进度：`docs/crcl_monitor_progress.md`。
-> 存储：`data/crcl_monitor.db`（独立于 macro_data.db，互不影响）。
+统计局数据接口如果跳到 WAF 验证页（返回 HTML），改读官方公开发布归档；不要反复请求或把 HTML 当 JSON。没有同口径的已发布数据就保留旧数据并注明。核查官方公布期或历史修订时，不跨发布版本计算环比。
 
-### 9.1 自动采集（API，无需手工）
+## 3. 宏观：需要 Agent 确认的录入点
 
-| 数据 | 源 | 端点 / 接口 | 频率 |
-|---|---|---|---|
-| USDC 流通量历史 | DefiLlama | `stablecoins.llama.fi/stablecoincharts/all?stablecoin=2`（已去跨链桥重复） | 日 |
-| EURC 流通量历史 | DefiLlama | `stablecoins.llama.fi/stablecoincharts/all?stablecoin=50`（欧元计价） | 日 |
-| 稳定币总盘历史 | DefiLlama | `stablecoins.llama.fi/stablecoincharts/all` | 日 |
-| 短端美债收益率 3M/6M/1Y | Treasury.gov | `home.treasury.gov/.../daily-treasury-rates.csv/{year}/all?type=daily_treasury_yield_curve&field_tdr_date_value={year}&page&_format=csv`（回填 2 年；fiscaldata JSON API 实测不可用，弃用） | 日 |
-| CRCL 日线 | AKShare 主 / yfinance 备 | `ak.stock_us_daily(symbol='CRCL')`；主源失败或无有效点时转 `yf.Ticker('CRCL').history(period='max', auto_adjust=False)` | 日 |
-| CRCL 估值快照 | yfinance | `Ticker('CRCL').info`（marketCap/trailingPE/forwardPE/P-S/52 周） | 每次采集 |
+**NIFD：** 从 [NIFD](https://www.nifd.cn/)「系列报告 → 宏观杠杆率」找本季报告；主站不可用可用作者/发布机构刊载的研究全文，不从二手摘要拼字段。只改 `scripts/nifd_leverage.py` 的 `NIFD_DATA`，追加 `("YYYY-MM-01", household, non_fin_corp, gov_total, gov_central, gov_local, real_economy, fin_asset, fin_liability)`，MM 为 03/06/09/12。全部为百分数，后两个金融部门值未披露填 `None`。核对中央+地方约等于政府、居民+企业+政府约等于实体，允许小额四舍五入；大跳变看原文。同一报告对上一季有修订时，环比用其同版比较值，勿用库里旧版本反推。CNBS 自动源失败时执行 `.venv312/bin/python scripts/03_supplement_leverage.py`。03 只追加新季度；确认 `leverage` 和 `derived_quarterly` 更新，不把它当历史修订入口。
 
-> **环境注意**：yfinance 为惰性 import 的备用源。若 CRCL 采集结果中 `yfinance_valuation` 报
-> `ModuleNotFoundError`，说明 venv 未装全依赖——在项目根目录跑
-> `.venv312/bin/pip install -r requirements.txt` 后重试（2026-08-30 实测补装即恢复）。
+**社融：** 主源 AKShare 可能滞后或报 TLS 错误。到央行「调查统计司 → 当年统计数据 → 社会融资规模」，如 [2026 年索引](https://www.pbc.gov.cn/diaochatongjisi/116219/116319/2026ntjsj/shrzgm/index.html)（跨年按官方导航切年份），打开「社会融资规模增量统计表」附件，不是存量表。按列名核对总增量、对实体经济人民币贷款、委托贷款、信托贷款、未贴现银行承兑汇票、企业债券、非金融企业境内股票融资。确认金额单位和负号；Excel 月份既可能是数值（`2026.1` 为 10 月）也可能是文本（`"2026.10"`）。全量未补上时，等其退出再跑 `.venv312/bin/python scripts/04_supplement_social_finance.py`。04 只追加比库内更晚且 `total` 非空的月份；「无新增」也可能是下载或格式异常，已发布的月份须回查 XLSX 和 `scripts/pbc_shrzgm.py`，不可报「未发布」。
 
-触发：应用启动自动一次（`CRCL_STARTUP_COLLECT=0` 可关）+ 页内「采集 CRCL」。接口为令牌保护的 `POST /api/v1/crcl/refresh`，终态在对应 `GET /api/v1/crcl/refresh/stream?job_id=…`。空估值不覆盖已有快照；美债按年隔离失败；部分失败会在结果中列出。核验可读 `GET /api/v1/crcl/logs`、`/overview`，按本轮 `run_id` 对照。
-代码：`backend/app/core/crcl_collect.py`；告警引擎 `crcl_alerts.py`（5 规则，状态变化写历史）。
+**以下都在 `scripts/01_fetch_data.py`。** 保留历史条目，新增时在对应行旁记录来源 URL；同一期明确修订才改旧值。补完只重跑相应表：
 
-### 9.2 手工补充（Agent / 人工，季度维护）
+| 常量 → 表 | 官方资料及录入字段 |
+|---|---|
+| _ISM_SUPPLEMENT → external_demand | ISM 新闻稿中的 Manufacturing PMI；键为参考月 `YYYY-MM-01`，不是次月发稿日。 |
+| _RATINGDOG_SUPPLEMENT → pmi | S&P Global / RatingDog 的制造业 PMI 与服务业商务活动指数原文（两份，允许一方缺失留空）；元组 `(制造业, 服务业)`。不能拿同名综合产出指数，或混进 NBS。若只取得第三方数字，记录核验情况，不把新闻摘要当正式来源。 |
+| _MOF_SUPPLEMENT → fiscal | 财政部「全国一般公共预算收支情况」；`date`、`revenue_cum`、`revenue_cum_yoy`、`expenditure_cum`、`expenditure_cum_yoy`，原文未披露的字段空着，保留前期记录。 |
+| _UNEMPLOYMENT_SUPPLEMENT → domestic_demand | 统计局国民经济运行稿；`date`、`unemployment_rate` 和 `unemployment_31_city`；用当月值，不用年平均或青年失业率。 |
+| _NBS_BIRTH_NATURAL → demographics | 统计局年度国民经济和社会发展统计公报；年度 `YYYY-01-01` 对应 `(出生率‰, 自然增长率‰)`。WDI 子序列超时应保留旧期有效值，用第 5 节对比，不能因总行数不变就略过。 |
 
-| 项 | 目标文件 | 当前补到 | 数据源 | 更新时机 |
-|---|---|---|---|---|
-| 季报拆解 | `data/crcl_fundamentals.json` → `quarters[]` | 2026Q1+Q2 | Circle 财报新闻稿 + 财报会转录 | 每季财报后（2/5/8/11 月初） |
-| 标志位 | 同上 → `flags` | 已填 | Fed 决议 / 立法进展 | 事件发生时 |
-| 宏观事件与里程碑 | `data/crcl_events.json` | 2026-10-25 手工快照；含待核实的旧计划 | Fed / SEC / Circle IR、立法原文 | 滚动维护 |
+## 4. Circle：先核对财报与事件，再采集公开序列
 
-**Agent 补充步骤（每季财报）**：
-1. 读 Circle 官方新闻稿（circle.com/pressroom）+ 财报会转录（Motley Fool 等）。
-2. 提取：总收入 / 储备收入 / 其他收入 / EPS 实际与预期 / 分发成本 / USDC 期末流通 / CPN 统计。
-3. 在 `quarters` 按 period 升序追加一条；派生字段：`nonreserve_share_pct` = 其他收入 ÷ 总收入 ×100；`distribution_cost_ratio_pct` = 分发成本 ÷ 总收入 ×100。
-4. 逐项复核已过日期仍标为「计划」的事件（例如当前文件中的 2026Q3 财报），用官方原文确认实际日期和结果，并更新 details/status；延期或无证据须保留不确定性。刷新 `/crcl-monitor`，并运行 `.venv312/bin/python -m pytest -q backend/tests/test_crcl_json_schema.py backend/tests/test_crcl_alerts.py`。
+### 官方资料补录
 
-**校验规则**（防录错）：
-- `reserve_revenue_m + other_revenue_m ≈ total_revenue_m`（±1%）。
-- `total_revenue_m` 当前量级 600–900；单季环比变化 >±20% 需复核。
-- `nonreserve_share_pct` 应在 0–20；`distribution_cost_ratio_pct` 应在 40–75。
-- EURC 无需手工（已自动采集）；若手工值与自动序列冲突，以自动序列为准。
+1. 查 [Circle 投资者关系](https://investor.circle.com/) 财报发布、[Circle 新闻稿](https://www.circle.com/pressroom) 和 [SEC EDGAR](https://www.sec.gov/edgar/browse/?CIK=1876042)。季度收入、储备收入、其他收入、GAAP 稀释 EPS 和分发相关总成本以财报**单季列**核验，实际 EPS 与共识分开，无同口径可追溯共识时填 `null`。不把 9 个月累计、调整后 EPS 或新闻预测填入单季实绩。
+2. 在 `data/crcl_fundamentals.json` 的 `quarters` 按财季升序追加/修订。财务 `_m` 是百万美元，流通/TPV `_b` 是十亿，链上交易量 `_t` 是万亿。期末 USDC 和平均 USDC 不混用，季度公司披露不以 DefiLlama 最新日替代。CPN 年化 TPV 不是本季度实现值。`reserve_revenue_m + other_revenue_m ≈ total_revenue_m`；`nonreserve_share_pct` = 其他收入/总收入×100；`distribution_cost_ratio_pct` = 同期分发相关成本/总收入×100。对照原文确定分子是否含交易及其他成本；不要向年度单行复制季度口径。一次性确认单独注明，不给真实异常设上限，也不将其称为经常性收入。记录 `source` 和 `updated_at`。
+3. 在 `data/crcl_events.json` 核对财报、监管和利率事件。每项填写 `date`（YYYY-MM-DD）、`category`、`title`、`detail`、`source`、`status`。过期的「计划」不自动变「已发生」：确认实际日期和结果才改状态，已知延期按新计划更新，未核实标「待验证」；保留来源和历史。同一事件的提案、表决、生效、执行不是一个日期。FOMC 查 [Fed 决议与日历](https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm)；美国立法查 [Congress.gov](https://www.congress.gov/)、[Federal Register](https://www.federalregister.gov/) 和发布部门；欧盟查 [EBA](https://www.eba.europa.eu/)。`flags.fed_cutting` 看最近已经发生的利率轨迹，不用期货预测；`flags.clarity_act_passed` 看最终立法状态，不把程序动议、委员会通过或单院通过当最终通过。
 
----
+### 自动采集
 
-## 自动化边界说明
+以下直接调用项目既有采集及 JSON 验证，不启动应用，不添加脚本。先维护手工资料，自动采集评估告警时就会使用新数据。
 
-- **AKShare `macro_cnbs`** 会在 CNBS 更新后自动带上（无需动作），但滞后大（现到 2024-12），不可依赖。
-- **不建议**把 NIFD 抓取硬塞进自动刷新：发现最新期 + 解析数字不可靠，静默失败会污染数据库。
-- 推荐节奏：每季度 NIFD 报告发布后（约季后 1 个月），由 Agent 按本手册 §1 补充一期。
+```bash
+.venv312/bin/python - <<'PY'
+import json
+from backend.app.api.v1.crcl import events, fundamentals
+from backend.app.core.crcl_collect import collect_all
 
----
+for check in (fundamentals, events):
+    payload = check()
+    assert "error" not in payload, payload
+result = collect_all(progress_cb=lambda p: print(f"CRCL {p:.0%}", flush=True))
+print(json.dumps(result, ensure_ascii=False, indent=2))
+raise SystemExit(0 if result["status"] == "ok" else 1)
+PY
+```
 
-## 10. 2026-10 NBS WAF 波动期间补齐口径
+6 个来源：DefiLlama 分别取 USDC（stablecoin=2）、EURC（=50；欧元口径）及全市场，注意跨链重复；Treasury.gov CSV 按年回填 3M/6M/1Y（近两年）；CRCL 日线 AKShare 主、yfinance 备；估值用 yfinance。收盘/美债只在有效交易日出现，快照时间和行情日不是一回事。空估值不覆盖旧值，逐项检查 `steps`，顶层 `status=ok` 也可能是部分成功。缺少 yfinance 先查虚拟环境依赖；不得把相邻日期旧值当新值。
 
-2026-10-25 实测 `data.stats.gov.cn` 查询接口会 302 到 `/waf_text_verify.html`，返回 HTML
-而不是 JSON。以下路径只使用公开、可复核的官方发布值；失败时保持上一份通过闸门的数据，
-不得用插值或“中性值”冒充真实观测。
+也可用页面「采集 CRCL」，或带本地令牌调用 `POST /api/v1/crcl/refresh`，再持续订阅 `GET /api/v1/crcl/refresh/stream?job_id=…` 到终态。应用启动默认也会自动采集一次（`CRCL_STARTUP_COLLECT=0` 可关）；CLI 与页面二选一。
 
-| 表 | 自动获取 | 当前覆盖 | 解析失败行为 |
-|---|---|---|---|
-| `pmi_detail` | 读最新一期 PMI 发布页两张表 | 每次读 13 个滚动月；旧期累积保留 | 空结果或有效期倒退保留旧表 |
-| `real_estate_activity` | 扫描最近 15 期「全国房地产市场基本情况」发布页 | 旧期累积保留；含开发投资、销售、新开工、竣工等 | 解析异常记录失败；旧表不覆盖 |
-| `domestic_demand` | 东财社零 + 东财固投；失业率优先 NBS API | 社零/固投长历史；失业率 2026-07 至 09 | 闸门要求社零与固投均实际存在 |
-| `fiscal` | NBS 优先；东财收入兜底；财政部支出补充 | 截至 2026-09 | 合并旧表后再校验，防止历史被截断 |
-| `external_demand` | NBS 优先；东财海关兜底 | 贸易截至 2026-09，ISM 补充至 2026-09 | 只填 NBS 空值，不覆盖已存在官方值 |
+## 5. 验收：看库里的有效值，然后出具交接摘要
 
-**RatingDog PMI 缺口**：旧 AKShare/Jin10 接口停在 2025-09；2026-06 至 2026-09 已按
-S&P Global 发布值补齐。2025-10 至 2026-05 的免费中段历史尚未取得，图中会保留真实缺口，
-不以线性插值伪造。每月发布后先核对 S&P Global 原稿中的参考月（制造业与服务业分别核对），再按该月的 `YYYY-MM-01` 追加，不用发布日期。
+以下只读检查可在刷新前后各跑一次。保存两次输出；比较原始表主键覆盖和重点字段的非空点数、末期，同时核对同一期修订是否属于正常发布。缺少 WAL 同目录读权限或系统 sqlite3 不能打开时，优先使用项目 Python 的 `mode=ro` 如下；不要在运行中的数据库上用 `immutable=1` 忽略 WAL。
+
+```bash
+.venv312/bin/python - <<'PY'
+import sqlite3
+
+tables = """money_supply gdp cpi ppi pmi pmi_detail leverage social_finance
+lpr industrial domestic_demand house_price real_estate_activity household_income
+new_credit bond_yield demographics fiscal external_demand derived_monthly derived_quarterly""".split()
+with sqlite3.connect("file:data/macro_data.db?mode=ro", uri=True) as db:
+    assert db.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+    for table in tables:
+        print(table, db.execute(f'SELECT COUNT(*), MIN(date), MAX(date) FROM "{table}"').fetchone())
+        for _, field, *_ in db.execute(f'PRAGMA table_info("{table}")'):
+            if field not in ("date", "city"):
+                print(" ", field, db.execute(
+                    f'SELECT COUNT("{field}"), MAX(date) FROM "{table}" WHERE "{field}" IS NOT NULL'
+                ).fetchone())
+with sqlite3.connect("file:data/crcl_monitor.db?mode=ro", uri=True) as db:
+    assert db.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+    for query in (
+        "SELECT metric, COUNT(*), MAX(date) FROM metric_points GROUP BY metric",
+        "SELECT key, updated_at FROM snapshot",
+        "SELECT run_id, source, status, message FROM collect_log WHERE run_id = (SELECT run_id FROM collect_log ORDER BY id DESC LIMIT 1) ORDER BY id",
+    ):
+        for row in db.execute(query):
+            print(row)
+PY
+```
+
+- **宏观**：核对原始表有效期，别用 `derived_monthly` 的最大日期（例如新一月债券已到、其它尚未发布）代表所有数据；核对 `derived_quarterly.hh_debt_to_income`、PMI 制造/服务、PPI 官方环比、财政支出、就业/社融分项、人口结构覆盖。黑盒闸门通过却丢字段时，保留前轮 vintage 作为对照；先查原始响应和合并规则，修复后定向重跑。如果源还没恢复而旧观测确已误删，可在锁内从经完整性校验的更新前 vintage 按原期次仅合并缺失字段，走既有暂存/校验/衍生重算/原子切换流程；勿整库回滚或给新一期套旧值。明确区分「有意移除无官方来源的旧推算」（如 PPI）与意外历史退化。
+- **Circle**：按本轮 `run_id` 和实际各序列末期核对；复核最新季度、过期计划项及两个 flags。若服务已开，重新加载宏观首页和 `/crcl-monitor`，或 GET `/api/v1/refresh/status`、`/api/v1/crcl/overview`、`/api/v1/crcl/fundamentals`、`/api/v1/crcl/events`；全量 manifest 只覆盖自动环节。服务未开时，上面的库与直接调用即可完成数据验收，不必启动服务。
+- **代码与 JSON 变动**：运行 `CRCL_STARTUP_COLLECT=0 .venv312/bin/python -m pytest -q backend/tests`、`git diff --check`；发现新增来源/口径/回退方式，同步更新本手册、来源参考和 CHANGELOG。一过性的当前期不要写成固定规则。
+- **交接格式**：运行时间、宏观全量通过/保留数、后续补数与复验、Circle 六个子源及最近有效期、手工季报和事件变更、未发布 / 已发布但取不到 / 已收到但未通过闸门分别列清。附官方出处和回读结果；不得把仅启动任务、HTTP 200、表行数一致当作更新完成。

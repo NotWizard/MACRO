@@ -175,7 +175,7 @@ MACRO/
 ├── docs/architecture-upgrade.md # 架构升级方案文档
 ├── docs/design/                 # 设计方案（dual-theme-plan.md 双主题色彩体系）
 ├── docs/data-sources-guide.md   # 数据源现状与实测记录
-├── docs/data-supplement-runbook.md # 数据补充运行手册（发布窗口+手动触发+校验）
+├── docs/data-supplement-runbook.md # 宏观经济与 Circle 数据更新手册
 ├── run_app.sh                   # 一键启动（单进程 FastAPI:8000，同时托管 API 与 Vue 构建产物）
 ├── 启动面板.command             # macOS 双击入口（委托 run_app.sh）
 ├── requirements.txt             # 直接依赖（人读，akshare 精确锁定）
@@ -234,7 +234,7 @@ cd frontend && npm run dev
 .venv312/bin/python scripts/02_compute_derived.py  # 仅在不取数、单独重算时用
 ```
 
-> 首次建库或完整核验跑 `01_fetch_data.py --full`；01 已含衍生重算。页面「刷新数据」默认按发布窗口，不是全量。补数及退出状态以 [数据补充运行手册](docs/data-supplement-runbook.md) 为准。
+> 首次建库或完整核验跑 `01_fetch_data.py --full`；01 已含衍生重算。页面「刷新数据」默认按发布窗口，不是全量。需要更新宏观与 Circle 的 Agent 只需从 [宏观经济与 Circle 数据更新手册](docs/data-supplement-runbook.md) 开始；AI 算力独立维护。
 
 ---
 
@@ -308,7 +308,7 @@ scripts/schedule/schedule_uninstall.sh  # 卸载
 
 ### 数据补充（NIFD / PBoC / 统计公报，手工或 Agent 触发）
 
-杠杆率（NIFD 季报）、社融（PBoC XLSX 备用源）、人口出生率/自然增长率（统计公报）等「自动源滞后/缺失」的数据，按 [`docs/data-supplement-runbook.md`](docs/data-supplement-runbook.md) 由 Agent 手动触发补充（含各指标发布窗口表、手动触发命令与校验规则），**不做定时任务**。数据源现状与实测记录见 [`docs/data-sources-guide.md`](docs/data-sources-guide.md)。
+杠杆率、社融、人口，以及 Circle 季报和监管事件的官方资料核验、补数与验收统一见 [宏观经济与 Circle 数据更新手册](docs/data-supplement-runbook.md)。[数据源参考](docs/data-sources-guide.md) 保留接口细节和实测记录，不是执行前置文档。
 
 ---
 

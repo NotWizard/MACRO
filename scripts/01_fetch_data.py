@@ -1011,6 +1011,9 @@ def fetch_demographics(conn):
             merged.loc[m, "birth_rate"] = b
             merged.loc[m, "natural_growth_rate"] = n
 
+    # A single timed-out WDI series must not erase previously published
+    # values when the other series still pass the row-count gate.
+    merged = _retain_release_history(conn, "demographics", merged)
     if merged.empty:
         log("  ⚠️ 人口数据全部不可用，跳过保存")
     save_to_db(merged, "demographics", conn)
@@ -1236,6 +1239,7 @@ def fetch_external_demand(conn):
         "2026-01-01": 52.6, "2026-02-01": 52.4, "2026-03-01": 52.7, "2026-04-01": 52.7,
         "2026-05-01": 54.0, "2026-06-01": 53.3, "2026-07-01": 55.6, "2026-08-01": 54.6,
         "2026-09-01": 54.5,
+        "2026-10-01": 55.5,  # ISM 2026-11-02: https://www.ismworld.org/supply-management-news-and-reports/reports/ism-pmi-reports/pmi/october/
     }
     have = set(result["date"])
     for d, v in _ISM_SUPPLEMENT.items():
@@ -1319,6 +1323,9 @@ def fetch_domestic_demand(conn):
          "unemployment_31_city": 5.3},
         {"date": "2026-09-01", "unemployment_rate": 5.2,
          "unemployment_31_city": 5.2},
+        # NBS 2026-11-16: https://www.stats.gov.cn/sj/zxfb/202611/t20261116_1965844.html
+        {"date": "2026-10-01", "unemployment_rate": 5.1,
+         "unemployment_31_city": 5.1},
     ])
     if unemployment.empty:
         unemployment = _UNEMPLOYMENT_SUPPLEMENT

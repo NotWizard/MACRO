@@ -321,6 +321,29 @@ def _conn_factory(db):
     return lambda: sqlite3.connect(db, check_same_thread=False)
 
 
+def test_demographics_keeps_published_history_when_death_rate_times_out(monkeypatch):
+    mod = _load_fetch_module()
+    monkeypatch.setattr(mod, "_nbs_population", lambda: None)
+    values = {"SP.POP.TOTL": 1400000000, "SP.URB.TOTL.IN.ZS": 67,
+              "SP.DYN.CBRT.IN": 6.5, "SP.POP.65UP.TO.ZS": 14, "SP.POP.DPND": 45}
+
+    def get(url, **kwargs):
+        series = url.rsplit("/", 1)[-1]
+        if series == "SP.DYN.CDRT.IN":
+            raise mod.requests.exceptions.Timeout()
+        return types.SimpleNamespace(raise_for_status=lambda: None,
+                                     json=lambda: [{}, [{"date": "2024", "value": values[series]}]])
+
+    monkeypatch.setattr(mod.requests, "get", get)
+    monkeypatch.setattr(mod, "save_to_db", lambda *a: None)
+    with sqlite3.connect(":memory:") as conn:
+        pd.DataFrame({"date": ["2024-01-01"], "natural_growth_rate": [-0.9],
+                      "birth_rate": [6.4]}).to_sql("demographics", conn, index=False)
+        out = mod.fetch_demographics(conn).set_index("date")
+    assert out.loc["2024-01-01", "natural_growth_rate"] == pytest.approx(-0.9)
+    assert out.loc["2024-01-01", "birth_rate"] == pytest.approx(6.5)
+
+
 def test_slow_fetcher_is_recorded_as_failure_and_the_run_still_terminates(tmp_path):
     """THE G11 BUG. A fetcher stuck in a no-timeout HTTP call used to hang the
     whole process; now it is abandoned at its budget, reported as a failure, and

@@ -34,9 +34,10 @@ def pbc_shrzgm_supplement_df() -> pd.DataFrame:
         yr = datetime.date.today().year
         hrefs = []
         for y in (yr, yr - 1):
-            lu = f"http://www.pbc.gov.cn/diaochatongjisi/116219/116319/{y}ntjsj/shrzgm/index.html"
+            lu = f"https://www.pbc.gov.cn/diaochatongjisi/116219/116319/{y}ntjsj/shrzgm/index.html"
             try:
                 r = requests.get(lu, headers=_UA, timeout=20)
+                r.raise_for_status()
                 hrefs = re.findall(r'(attachDir/[^"\'\s]+\.xlsx)', r.text)
                 if hrefs:
                     break
@@ -48,8 +49,9 @@ def pbc_shrzgm_supplement_df() -> pd.DataFrame:
         hdr = None
         for h in hrefs[:4]:   # 选增量表(title 含"增量")且有列头行(含"人民币贷款")
             try:
-                xr = requests.get("http://www.pbc.gov.cn/diaochatongjisi/" + h,
+                xr = requests.get("https://www.pbc.gov.cn/diaochatongjisi/" + h,
                                   headers=_UA, timeout=30)
+                xr.raise_for_status()
                 x = pd.read_excel(io.BytesIO(xr.content), header=None)
                 if not any("增量" in str(v) for v in x.iloc[0]):
                     continue
@@ -80,9 +82,12 @@ def pbc_shrzgm_supplement_df() -> pd.DataFrame:
         for i in range(hdr + 1, len(xls)):
             mo = xls.iloc[i, 0]
             try:
-                y = int(mo)
-                month = round((float(mo) - y) * 100)   # 2026.05→5; 2026.1→10
-            except Exception:
+                # Numeric cells drop October's trailing zero; releases may also
+                # store a YYYY.MM label as text (e.g. "2026.10").
+                value = float(mo)
+                y = int(value)
+                month = round((value - y) * 100)
+            except (TypeError, ValueError, OverflowError):
                 continue
             if not (1 <= month <= 12):
                 continue

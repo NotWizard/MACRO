@@ -1,8 +1,8 @@
 {
   "_说明": "CRCL 监控 — 季报拆解与人工维护标志位。每季度财报后手工更新 quarters/annual；flags 用于告警规则判定（fed_cutting=降息周期中；clarity_act_passed=Clarity Act 已通过）。数值单位见字段名后缀。 quarters 可选 delta 字段：total_revenue_yoy_pct / reserve_revenue_yoy_pct / nonreserve_share_pp_qoq / cpn_institutions_qoq / eurc_circ_qoq_pct；缺失时页面优先用相邻两季自动计算（比率类用 pp），仍缺则显示 —。",
-  "updated_at": "2026-08-20",
+  "updated_at": "2026-11-18",
   "flags": {
-    "fed_cutting": true,
+    "fed_cutting": false,
     "clarity_act_passed": false
   },
   "quarters": [
@@ -27,21 +27,44 @@
     },
     {
       "period": "2026Q2",
-      "total_revenue_m": 701,
-      "reserve_revenue_m": 668,
-      "reserve_revenue_yoy_pct": 5.0,
-      "nonreserve_share_pct": 4.7,
+      "total_revenue_m": 701.315,
+      "total_revenue_yoy_pct": 6.57,
+      "reserve_revenue_m": 667.733,
+      "reserve_revenue_yoy_pct": 5.28,
+      "other_revenue_m": 33.582,
+      "nonreserve_share_pct": 4.79,
       "eps_actual": 0.18,
       "eps_consensus": 0.26,
-      "usdc_circ_avg_b": 73.3,
-      "usdc_circ_yoy_pct": 19,
-      "cpn_usdc_volume_yoy_pct": 151,
+      "usdc_circ_end_b": 73.269,
+      "usdc_circ_avg_b": 76.524,
+      "usdc_circ_yoy_pct": 19.46,
+      "usdc_onchain_volume_t": 14.8,
+      "distribution_cost_m": 412.470,
+      "distribution_cost_ratio_pct": 58.81,
+      "cpn_tpv_annualized_b": 14.7,
       "cpn_institutions": 175,
       "eurc_circ_m": 400,
-      "source": "Circle Q2 2026 财报 + 新闻稿 + 2026-08-19 AMA",
-      "total_revenue_yoy_pct": 6.6,
-      "other_revenue_m": 33,
-      "usdc_circ_end_b": 72.1
+      "source": "Q2 10-Q https://www.sec.gov/Archives/edgar/data/1876042/000187604226000248/crcl-20260630.htm ；CPN 与链上交易量 https://www.sec.gov/Archives/edgar/data/1876042/000187604226000246/augustepr-circle_q22026f.htm ；EURC 沿用 2026-08-19 AMA。"
+    },
+    {
+      "period": "2026Q3",
+      "total_revenue_m": 864.888,
+      "total_revenue_yoy_pct": 16.91,
+      "reserve_revenue_m": 657.624,
+      "reserve_revenue_yoy_pct": -7.54,
+      "other_revenue_m": 207.264,
+      "nonreserve_share_pct": 23.96,
+      "eps_actual": 0.84,
+      "eps_consensus": null,
+      "usdc_circ_end_b": 73.879,
+      "usdc_circ_avg_b": 73.264,
+      "usdc_circ_yoy_pct": 0.18,
+      "usdc_onchain_volume_t": 13.9,
+      "distribution_cost_m": 411.634,
+      "distribution_cost_ratio_pct": 47.59,
+      "cpn_tpv_annualized_b": 41.3,
+      "cpn_institutions": 205,
+      "source": "Q3 10-Q 三个月列 https://www.sec.gov/Archives/edgar/data/1876042/000187604226000311/crcl-20260930.htm ；CPN 指标见 Q3 业绩演示第 7 页 https://s206.q4cdn.com/265218871/files/doc_earnings/2026/q3/presentation/3Q26-Earnings-Presentation.pdf 。其他收入含约 $182M ARC 预售确认，23.96% 不代表经常性收入占比；成本含分发、交易及其他。"
     }
   ],
   "annual": [
