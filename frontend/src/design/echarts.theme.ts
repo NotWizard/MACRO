@@ -242,7 +242,8 @@ export function applyTheme(option: Record<string, any>): Record<string, any> {
   if (merged.tooltip?.axisPointer) {
     merged.tooltip.axisPointer.label = {
       ...(merged.tooltip.axisPointer.label || {}),
-      formatter: (p: any) => fmtDate(p.value),
+      formatter: ({ value }: { value: unknown }) =>
+        typeof value === 'number' && !Number.isInteger(value) ? fmtNum(value) : fmtDate(value),
     }
   }
   applyDateFormat(merged)

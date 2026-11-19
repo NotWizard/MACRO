@@ -264,5 +264,12 @@ export interface CrclFundamentals {
     daily_transactions_approx?: number | null
     source: string
   } | null
+  second_curve?: {
+    arc_gas?: Array<{ month: string; network_fees_usdc: number; circle_fees_usdc?: number | null; source: string }>
+    arc_gas_reference?: { month: string; average_daily_usdc: number; days_covered: number; source: string } | null
+    arc_rwa?: { as_of: string; balance_m: number; scope?: 'provider_sample' | 'verified_assets'; coverage: string; source: string } | null
+    institutions?: Array<{ as_of: string; institution: string; product: string; stage: string; evidence: string; source: string; source_label: string }>
+    b2b_payments?: { period: string; verified_b2b_m: number; classified_payments_m: number; coverage: string; source: string } | null
+  } | null
   error?: string
 }

@@ -11,10 +11,12 @@ data/crcl_fundamentals.json (human-maintained quarters + flags).
 import json
 import logging
 import re
+from calendar import monthrange
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictFloat, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, ValidationError, field_validator, model_validator
 
 from backend.app.core import crcl_db
 
@@ -60,7 +62,12 @@ class _Quarter(BaseModel):
     total_revenue_yoy_pct: StrictFloat | None = None
     reserve_revenue_m: StrictFloat | None = None
     reserve_revenue_yoy_pct: StrictFloat | None = None
+    reserve_return_rate_pct: StrictFloat | None = None
     other_revenue_m: StrictFloat | None = None
+    subscription_services_revenue_m: StrictFloat | None = Field(default=None, allow_inf_nan=False)
+    transaction_revenue_m: StrictFloat | None = Field(default=None, allow_inf_nan=False)
+    revenue_breakdown_source: str | None = None
+    recurring_service_revenue_m: StrictFloat | None = Field(default=None, ge=0)
     nonreserve_share_pct: StrictFloat | None = None
     nonreserve_one_off_m: StrictFloat | None = Field(default=None, ge=0)
     eps_actual: StrictFloat | None = None
@@ -73,8 +80,10 @@ class _Quarter(BaseModel):
     distribution_cost_ratio_pct: StrictFloat | None = None
     eurc_circ_m: StrictFloat | None = None
     cpn_tpv_annualized_b: StrictFloat | None = None
+    cpn_quarter_tpv_b: StrictFloat | None = Field(default=None, ge=0)
     cpn_usdc_volume_yoy_pct: StrictFloat | None = None
     cpn_institutions: StrictFloat | None = None
+    mint_active_enterprises_90d: int | None = Field(default=None, strict=True, ge=0)
     source: str | None = None
 
 
@@ -105,6 +114,81 @@ class _ArcDisclosure(BaseModel):
     source: str
 
 
+class _ArcGasMonth(BaseModel):
+    month: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    network_fees_usdc: StrictFloat = Field(ge=0, allow_inf_nan=False)
+    circle_fees_usdc: StrictFloat | None = Field(default=None, ge=0, allow_inf_nan=False)
+    source: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def check_attribution(self):
+        if self.circle_fees_usdc is not None and self.circle_fees_usdc > self.network_fees_usdc:
+            raise ValueError("Circle fees cannot exceed network fees in the same month")
+        return self
+
+
+class _ArcGasReference(BaseModel):
+    month: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    average_daily_usdc: StrictFloat = Field(ge=0, allow_inf_nan=False)
+    days_covered: int = Field(strict=True, ge=1, le=31)
+    source: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def check_full_month(self):
+        year, month = map(int, self.month.split("-"))
+        if self.days_covered != monthrange(year, month)[1]:
+            raise ValueError("Arc fee reference must cover the whole month")
+        return self
+
+
+class _ArcRwa(BaseModel):
+    as_of: date
+    balance_m: StrictFloat = Field(ge=0, allow_inf_nan=False)
+    scope: Literal["provider_sample", "verified_assets"] = "verified_assets"
+    coverage: str = Field(min_length=1)
+    source: str = Field(min_length=1)
+
+
+class _InstitutionEvidence(BaseModel):
+    as_of: date
+    institution: str = Field(min_length=1)
+    product: str = Field(min_length=1)
+    stage: Literal["已公告", "试点", "生产可用", "已验证持续使用", "已验证付费"]
+    evidence: str = Field(min_length=1)
+    source: str = Field(min_length=1)
+    source_label: str = Field(min_length=1)
+
+
+class _B2bPaymentsSample(BaseModel):
+    period: str = Field(min_length=1)
+    verified_b2b_m: StrictFloat = Field(ge=0, allow_inf_nan=False)
+    classified_payments_m: StrictFloat = Field(gt=0, allow_inf_nan=False)
+    coverage: str = Field(min_length=1)
+    source: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def check_scope(self):
+        if self.verified_b2b_m > self.classified_payments_m:
+            raise ValueError("B2B volume cannot exceed classified sample volume")
+        return self
+
+
+class _SecondCurve(BaseModel):
+    arc_gas: list[_ArcGasMonth] = Field(default_factory=list)
+    arc_gas_reference: _ArcGasReference | None = None
+    arc_rwa: _ArcRwa | None = None
+    institutions: list[_InstitutionEvidence] = Field(default_factory=list)
+    b2b_payments: _B2bPaymentsSample | None = None
+
+    @field_validator("arc_gas")
+    @classmethod
+    def check_months(cls, values: list[_ArcGasMonth]):
+        months = [row.month for row in values]
+        if months != sorted(set(months)):
+            raise ValueError("Arc fee months must be unique and in ascending order")
+        return values
+
+
 class FundamentalsFile(BaseModel):
     """Schema for data/crcl_fundamentals.json (unknown keys like _说明 ignored)."""
 
@@ -115,6 +199,7 @@ class FundamentalsFile(BaseModel):
     annual: list[_Annual] = Field(default_factory=list)
     presale: _Presale | None = None
     arc: _ArcDisclosure | None = None
+    second_curve: _SecondCurve | None = None
 
 
 RULES = {

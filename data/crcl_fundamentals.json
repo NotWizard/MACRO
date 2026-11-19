@@ -1,6 +1,6 @@
 {
   "_说明": "CRCL 监控 — 季报拆解与人工维护标志位。每季度财报后手工更新 quarters/annual；flags 用于告警规则判定（fed_cutting=降息周期中；clarity_act_passed=Clarity Act 已通过）。数值单位见字段名后缀。 quarters 可选 delta 字段：total_revenue_yoy_pct / reserve_revenue_yoy_pct / nonreserve_share_pp_qoq / cpn_institutions_qoq / eurc_circ_qoq_pct；缺失时页面优先用相邻两季自动计算（比率类用 pp），仍缺则显示 —。",
-  "updated_at": "2026-11-18",
+  "updated_at": "2026-11-19",
   "flags": {
     "fed_cutting": false,
     "clarity_act_passed": false
@@ -12,6 +12,52 @@
     "daily_transactions_approx": 500000,
     "source": "https://s206.q4cdn.com/265218871/files/doc_earnings/2026/q3/presentation/3Q26-Earnings-Presentation.pdf#page=9"
   },
+  "second_curve": {
+    "arc_gas": [],
+    "arc_gas_reference": {
+      "month": "2026-10",
+      "average_daily_usdc": 3214,
+      "days_covered": 31,
+      "source": "https://www.bitquery.io/investigations/arc-blockchain-six-months"
+    },
+    "arc_rwa": {
+      "as_of": "2026-11-19",
+      "balance_m": 5.29,
+      "scope": "provider_sample",
+      "coverage": "DefiLlama 链上 AUM 快照，主要是 Matrixdock XAUm；覆盖不全",
+      "source": "https://defillama.com/rwa/chain/arc"
+    },
+    "b2b_payments": null,
+    "institutions": [
+      {
+        "as_of": "2026-11-18",
+        "institution": "星展银行 · DBS",
+        "product": "USDC 铸造与赎回",
+        "stage": "已公告",
+        "evidence": "公告明确面向合资格机构提供 USDC 铸赎与 24/7 美元结算能力；未披露客户实绩、Arc 交易额或向 Circle 支付的费用。",
+        "source": "https://www.circle.com/pressroom/dbs-and-circle-expand-institutional-access-to-usdc-in-asia",
+        "source_label": "星展与 Circle 联合公告"
+      },
+      {
+        "as_of": "2026-10-30",
+        "institution": "Extended",
+        "product": "Arc · 衍生品交割",
+        "stage": "生产可用",
+        "evidence": "Circle 披露 Extended 已将永续合约结算迁至 Arc；未单独列明复用量、Circle 所收费用或净收入。",
+        "source": "https://s206.q4cdn.com/265218871/files/doc_earnings/2026/q3/presentation/3Q26-Earnings-Presentation.pdf#page=9",
+        "source_label": "Circle Q3 演示：Arc 上线应用"
+      },
+      {
+        "as_of": "2026-10-27",
+        "institution": "ACI Worldwide",
+        "product": "哥伦比亚 · USDC 结算",
+        "stage": "试点",
+        "evidence": "在现有支付基础设施试点 USDC 结算；尚不是拉美全量商用，也没有可比的季度交易额。",
+        "source": "https://www.circle.com/pressroom/aci-worldwide-and-circle-collaborate-to-bring-usdc-settlement-to-existing-payments-infrastructure-in-latin-america",
+        "source_label": "ACI 与 Circle 试点公告"
+      }
+    ]
+  },
   "quarters": [
     {
       "period": "2026Q1",
@@ -20,6 +66,9 @@
       "reserve_revenue_m": 653,
       "reserve_revenue_yoy_pct": 17,
       "other_revenue_m": 42,
+      "subscription_services_revenue_m": 34.861,
+      "transaction_revenue_m": 6.73,
+      "revenue_breakdown_source": "https://www.sec.gov/Archives/edgar/data/1876042/000187604226000150/R18.htm",
       "nonreserve_share_pct": 6.1,
       "eps_actual": 0.21,
       "eps_consensus": 0.18,
@@ -39,6 +88,9 @@
       "reserve_revenue_m": 667.733,
       "reserve_revenue_yoy_pct": 5.28,
       "other_revenue_m": 33.582,
+      "subscription_services_revenue_m": 28.156,
+      "transaction_revenue_m": 5.33,
+      "revenue_breakdown_source": "https://www.sec.gov/Archives/edgar/data/1876042/000187604226000248/R18.htm",
       "nonreserve_share_pct": 4.79,
       "eps_actual": 0.18,
       "eps_consensus": 0.26,
@@ -59,7 +111,11 @@
       "total_revenue_yoy_pct": 16.91,
       "reserve_revenue_m": 657.624,
       "reserve_revenue_yoy_pct": -7.54,
+      "reserve_return_rate_pct": 3.5,
       "other_revenue_m": 207.264,
+      "subscription_services_revenue_m": 19.587,
+      "transaction_revenue_m": 5.335,
+      "revenue_breakdown_source": "https://www.sec.gov/Archives/edgar/data/1876042/000187604226000311/R18.htm",
       "nonreserve_share_pct": 23.96,
       "nonreserve_one_off_m": 181.8,
       "eps_actual": 0.84,

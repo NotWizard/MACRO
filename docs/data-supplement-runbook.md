@@ -77,6 +77,24 @@ jq '{ts, committed, derived, tables, sources}' data/last_run.json
 
 Arc 官方披露维护 `data/crcl_fundamentals.json` 的 `arc`：`as_of` 为观测日、`assets_b` 为链上资产（十亿美元）、`usdc_volume_min_b` 为主网上线以来 USDC 交易量下限（十亿美元）、`daily_transactions_approx` 为披露的约数（笔），`source` 链接到具体页。只更新同一观测口径；Dex 成交量、USDC 转账量、CPN 支付量和链上交易笔数不能相互代填。更新里程碑时区分签约、试点、正式投入商用和交易交割。
 
+两条曲线使用同一份 `crcl_fundamentals.json`。第一曲线补 `quarters[].reserve_return_rate_pct`（公司披露的储备收益率，百分数）和季度日均 USDC；第二曲线补 `recurring_service_revenue_m`（明确单独披露的经常性服务收入）、`cpn_quarter_tpv_b`（整季实际支付量）、`mint_active_enterprises_90d`（90 天内有生产活动的去重企业主体）。每项用同一财季的原文链接，无可靠披露则省略或填 `null`，不把调整后其他收入当经常性收入，也不拿累计登记机构或季末 30 天年化 TPV 当作实绩。
+
+财报附注的 *Revenue by Product and Service* 单季列另抄 `subscription_services_revenue_m`（订阅与服务收入）和 `transaction_revenue_m`（交易收入），两项都以百万美元存储；`revenue_breakdown_source` 放原表链接。[2026Q3 附注原表](https://www.sec.gov/Archives/edgar/data/1876042/000187604226000311/R18.htm) 的两项分别为 19.587 和 5.335；表头为千美元，入库除以 1,000。前者可含按交付一次确认的集成收入，后者包含多种交易类收入，不能代填经常性服务收入、CPN 收费，或与其他收入再相加。缺当期附注不沿用上一季。
+
+`second_curve` 下的补数目前由 Agent 核验后录入，**不由一键公开采集填入**：
+
+- `arc_gas`：按 `month`（YYYY-MM）升序保存已结束且全覆盖的 UTC 月。从 [Arc 主网浏览器](https://explorer.arc.io/) 或可审核的主网索引汇总 `gasUsed × effectiveGasPrice` 并按 RPC 原生 USDC 精度换算，计入实际付费的失败交易，不混入测试网、应用协议费用或不完整月份。`network_fees_usdc` 是全网实付原币数量，手续费[不销毁](https://www.circle.com/legal/mica-usdc-whitepaper)；`circle_fees_usdc` 仅统计归属有证据的接收地址，未知留 `null`，不是 GAAP 收入。`source` 记录可追溯的查询/汇总证据。
+- `arc_rwa`：`as_of`、`balance_m`（百万美元）、`scope`、`coverage`、`source`。允许按 `scope=provider_sample` 存 [DefiLlama Arc RWA](https://defillama.com/rwa/chain/arc) 的 **Total RWA Onchain AUM** 快照，注明核查日、主要资产及覆盖不全。2026-11-19 核查约 5.29 百万美元，主要为 Matrixdock XAUm。自己逐合约核对发行量与估值时用 `scope=verified_assets` 并写清范围，剔除 USDC、EURC、BTC 映射和重复包装。两者不能混成同一全链序列；不填 DeFi TVL 或 Circle 披露的链上总资产。
+- `institutions`：以 `as_of`、`institution`、`product`、`stage`、`evidence`、`source`、`source_label` 记录最新证据。阶段为「已公告／试点／生产可用／已验证持续使用／已验证付费」；该机构在其他产品或网络的进度不能拿来升段。`b2b_payments` 只有拿到同源、同期、去重的样本时才填 `period`、`verified_b2b_m`、`classified_payments_m`、`coverage`、`source`；分母是同样本中已分类支付，不是全 USDC 链上流水。无法分类或样本不全说明覆盖限制。
+- 监管仍写 `crcl_events.json`：分别核对法案签署/生效、实施规则、具体发行主体许可、国家信托银行牌照、合作行清算和美联储直接接入。机构宣称的路线图不是实际交割。
+
+### Arc 月度手续费：从 2026-10 UTC 完整月开始
+
+1. 用主网 RPC `https://rpc.mainnet.arc.io` 核对 `eth_chainId=0x13b2`，用 `eth_getBlockByNumber` 对区块时间二分找到两个 UTC 月初的第一个区块。已实测 2026-10 区间为 **[23,620,688, 28,898,866)**，边界各自的前一区块仍在上个月。首块的 4 笔回执 `gasUsed` 共 381,708，与区块一致，`gasUsed × effectiveGasPrice` 合计为 **7634160149650584** 原始单位；这是单块校验点，不是月额。
+2. 在有历史查询权限的数据源回填。[Dune `arc.blocks`、`arc.transactions`](https://docs.dune.com/data-catalog/evm/arc/overview) 和 [`gas.fees`](https://docs.dune.com/data-catalog/curated/gas-fees/fees) 可用 [`scripts/crcl_arc_gas.sql`](../scripts/crcl_arc_gas.sql) 候选查询先验覆盖；每月改两个月初日期。在发布前用首块及月内其他区块的主网回执抽查 `tx_fee_raw` 的单位与实际实付一致，不能默认聚合表已覆盖 Arc。若 `gas.fees` 无 Arc 或漏数据，换 [Arc 原始回执索引（如 Goldsky）](https://app.goldsky.com/explore/arc_mainnet/receipt_transactions)，按同样口径聚合 `receipt_gas_used × receipt_effective_gas_price`，成功和失败交易都计入；不用 gas 上限或报价代替。Dune API 需 API key，当前未执行整月索引查询，不能宣称月额已验。
+3. 验收必须同时满足：日期从月初逐日至月末；每日 `block_rows = unique_blocks = last_block − first_block + 1`，跨日区块连续，整个区间与主网核查一致；每日交易数、去重数和手续费回执数一致，`invalid_fee_rows=0`，`receipt_gas=block_gas`。以交易哈希抽查手续费原值后，保存查询链接或带日期的日汇总证据。用十进制定点数将 `fee_raw` 求和后除以 `10^18`，再追加 `arc_gas`。缺日、缺区块或金额口径不合格，不写月额、不补零。下一月仍进行中时不入完整月序列。
+4. 只有全部自然日的公开日均、但没有精确月合计时，可填 `arc_gas_reference`（`month`、`average_daily_usdc`、`days_covered`、`source`），页面注明为折算参考。2026-10 的 [Bitquery 公开图](https://www.bitquery.io/investigations/arc-blockchain-six-months) 标明日均 3,214 USDC，31 天折算约 9.96 万 USDC；日均已取整，不得写入精确序列，11 月图只含 1–17 日也不填整月。官方浏览器接口本次 TLS 失败、第三方日聚合超时或 530，没拿到可核验整月明细；DefiLlama Arc fees 排行是应用费，不是网络 gas。
+
 ### 自动采集
 
 以下直接调用项目既有采集及 JSON 验证，不启动应用，不添加脚本。先维护手工资料，自动采集评估告警时就会使用新数据。
@@ -102,9 +120,8 @@ PY
 
 ### 按页面分组回读
 
-- **股价、估值与每股收益**：收盘价核对最后一个有效交易日；市值与 P/E 核对 Yahoo Finance 估值快照，不强行对齐收盘日。P/E 卡主值为前瞻 P/E 减 TTM P/E，两个源值都存在才算差；稀释 EPS 是对应财季的 GAAP 单季实际值，不是 TTM EPS 或预期。
-- **收入构成与成本**：从同一财季核对总收入、储备收入、其他收入和分发相关成本。金额以亿美元展示（财报 `_m` 字段除以 100），占比仍用同口径分母；披露与剔除一次性项目后的非储备占比要分别核对。
-- **稳定币规模与行业对照**：分别核对 `usdc_circ`、`eurc_circ`、`stablecoin_total` 的最新有效日期。前两项按币种取全链流通量，行业总市值取全链美元锚定稳定币（包含 USDC，不与其相加）。USDC 和总市值图是各自的日频值，浏览器悬浮复核日期、亿美元单位和时序缩放；不拿财报期末点或 Arc 单链数据覆盖。
+- **第一曲线 · 储备金主业**：验证储备收入、实际储备收益率、财报季度日均 USDC 与 DefiLlama 最新日值分开。行业总市值含 USDC、不与其相加；核对日线日期、亿美元单位及缩放。股价、市值、两种 P/E、GAAP EPS、总收入和成本是公司整体口径。行情用有效交易日，估值快照不强行对齐。
+- **第二曲线 · 金融服务转型**：确认披露其他收入、剔除已知一次性金额及占比、财报附注两项、经常性收入分别列示；`_m` 除以 100 为亿美元、乘以 100 为万美元。复核 CPN 年化量与整季量、登记数与活跃数不互填；核实未披露、样本覆盖不全、精确月合计待核验各有不同说明。Arc 月额与折算参考、可确认归属金额、非稳定币 RWA 与 DeFi TVL 不混用，证据可跳原文。
 
 ## 5. 验收：看库里的有效值，然后出具交接摘要
 

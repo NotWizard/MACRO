@@ -109,6 +109,42 @@ def test_one_off_adjustment_is_shared_by_api_and_live_alerts(tmp_path, monkeypat
     assert crcl_db.get_rule_status()["c_thesis_confirmed"]["status"] == "triggered"
 
 
+def test_second_curve_roundtrip_keeps_unknown_distinct_from_zero(tmp_path, monkeypatch):
+    payload = _deepcopy(VALID_FUNDAMENTALS)
+    payload["quarters"][-1].update(
+        recurring_service_revenue_m=None, mint_active_enterprises_90d=0,
+        subscription_services_revenue_m=19.587, transaction_revenue_m=5.335,
+        revenue_breakdown_source="https://example.com/filing",
+    )
+    payload["second_curve"] = {"arc_gas": [
+        {"month": "2026-10", "network_fees_usdc": 45.5, "circle_fees_usdc": None,
+         "source": "https://example.com/arc-receipts"},
+    ], "arc_rwa": {"as_of": "2026-11-19", "balance_m": 5.29, "scope": "provider_sample",
+                   "coverage": "partial coverage", "source": "https://example.com/arc-rwa"}}
+    _point_fundamentals(monkeypatch, _write(tmp_path, "f.json", payload))
+    res = crcl.fundamentals()
+    assert "error" not in res
+    assert res["quarters"][-1]["recurring_service_revenue_m"] is None
+    assert res["quarters"][-1]["mint_active_enterprises_90d"] == 0
+    assert res["quarters"][-1]["subscription_services_revenue_m"] == 19.587
+    assert res["quarters"][-1]["transaction_revenue_m"] == 5.335
+    assert res["second_curve"] == payload["second_curve"]
+
+
+@pytest.mark.parametrize("field, data", [
+    ("arc_gas", [{"month": "2026-10", "network_fees_usdc": 5, "circle_fees_usdc": 6, "source": "receipt report"}]),
+    ("arc_gas", [{"month": "2026-10", "network_fees_usdc": 5, "source": "report"}] * 2),
+    ("arc_gas_reference", {"month": "2026-11", "average_daily_usdc": 2576, "days_covered": 17, "source": "report"}),
+    ("b2b_payments", {"period": "2026Q3", "verified_b2b_m": 9, "classified_payments_m": 8, "coverage": "sample", "source": "report"}),
+    ("institutions", [{"as_of": "2026-10-20", "institution": "FI", "product": "CPN", "stage": "预测", "evidence": "report", "source": "report", "source_label": "source"}]),
+])
+def test_second_curve_rejects_mismatched_scope_or_stage(field, data, tmp_path, monkeypatch):
+    payload = _deepcopy(VALID_FUNDAMENTALS)
+    payload["second_curve"] = {field: data}
+    _point_fundamentals(monkeypatch, _write(tmp_path, "f.json", payload))
+    assert f"second_curve.{field}" in crcl.fundamentals()["error"]
+
+
 # --------------------------- number-as-string ------------------------------
 def test_fundamentals_number_as_string_rejected(tmp_path, monkeypatch):
     bad = _deepcopy(VALID_FUNDAMENTALS)

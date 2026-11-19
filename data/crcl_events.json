@@ -1,7 +1,9 @@
 {
   "_说明": "CRCL 监控 — 宏观事件与里程碑。手工维护：直接编辑本文件，页面实时读取。category ∈ {财报, 监管, 宏观, 里程碑, 合作, 检查点}；status ∈ {已发生, 进行中, 待观察, 待验证, 计划}。日期格式 YYYY-MM-DD。",
-  "updated_at": "2026-11-18",
+  "updated_at": "2026-11-19",
   "events": [
+    {"date": "2025-07-18", "category": "监管", "title": "GENIUS Act 签署成法", "detail": "确立美国支付稳定币框架。签署不等于规则生效，也不自动授予发行资格或直接清算权限。", "source": "https://www.govinfo.gov/content/pkg/PLAW-119publ27/pdf/PLAW-119publ27.pdf", "status": "已发生"},
+    {"date": "2026-07-10", "category": "监管", "title": "Circle 获批设立国家信托银行", "detail": "OCC 最终批准设立 First National Digital Currency Bank, N.A.；不能据此推定 Circle 已获 GENIUS 发行资格或直接接入美联储清算。", "source": "https://www.circle.com/pressroom/circle-receives-final-occ-approval-to-establish-national-trust-bank", "status": "已发生"},
     {"date": "2026-08-05", "category": "财报", "title": "Q2 2026 财报发布", "detail": "总收入（含储备收入）$701.3M，稀释 EPS $0.18，USDC 期末 $73.269B、季度日均 $76.524B。USDC 链上交易量 $14.8T（同比 +151%），并非 CPN 交易量。", "source": "https://www.sec.gov/Archives/edgar/data/1876042/000187604226000246/augustepr-circle_q22026f.htm", "status": "已发生"},
     {"date": "2026-08-18", "category": "合作", "title": "Coinbase 分发协议按原条款续约", "detail": "Circle 在 Q2 业绩会确认按原条款续约；首个三年续约期自 2026-08-18 起算。分发成本率仍是利润弹性的关键变量。", "source": "Circle 2026 Q2 业绩会 / SEC 运营协议", "status": "已发生"},
     {"date": "2026-08-18", "category": "监管", "title": "SEC 提出 Regulation Crypto 资产监管提案", "detail": "SEC 当日提出数字资产代币销售与分类框架；公众意见期已于 2026-10-20 结束，最终规则仍待发布。", "source": "SEC Regulation Crypto 提案（2026-08-18）", "status": "已发生"},
@@ -13,6 +15,7 @@
     {"date": "2026-09-16", "category": "宏观", "title": "FOMC 9 月会议：加息 25bp 至 3.75%–4.00%", "detail": "会议于 9 月 15–16 日举行，政策利率上调 25bp，表决结果为 12–0。储备收入随短端利率上行受益，后续仍需跟踪利率路径。", "source": "美联储政策声明（2026-09-16）", "status": "已发生"},
     {"date": "2026-09-15", "category": "监管", "title": "Clarity Act 参议院程序性投票未通过", "detail": "推进动议以 49–50 未获通过。已发生的是这次程序性表决，不代表法案通过或被最终否决。", "source": "https://www.democrats.senate.gov/2026/09/15/wrap-up-for-tuesday-september-15-2026", "status": "已发生"},
     {"date": "2026-09-22", "category": "合作", "title": "Binance 投资 Circle 并续签 USDC 合作", "detail": "Binance 投入 1 亿美元战略股权资金；新商业协议为期五年，重点扩大 USDC 在新兴市场的使用。股权投资不是营业收入。", "source": "https://investor.circle.com/news/news-details/2026/Binance-Invests-100-Million-in-Circle-Expands-Strategic-Partnership-and-Renews-Commercial-Agreement-for-Five-Years/default.aspx", "status": "已发生"},
+    {"date": "2026-10-21", "category": "监管", "title": "OCC 发布 GENIUS Act 最终规则", "detail": "最终规则与法案于 2027-01-18 生效；具体发行主体的申请与许可仍按正式记录核验。", "source": "https://www.occ.gov/news-issuances/news-releases/2026/nr-occ-2026-92.html", "status": "已发生"},
     {"date": "2026-10-27", "category": "合作", "title": "ACI 与 Circle 在哥伦比亚试点 USDC 结算", "detail": "试点测试通过 ACI 现有支付基础设施接入 USDC 结算，不能视作整个拉美统一投入商用。", "source": "https://www.circle.com/pressroom/aci-worldwide-and-circle-collaborate-to-bring-usdc-settlement-to-existing-payments-infrastructure-in-latin-america", "status": "已发生"},
     {"date": "2026-10-28", "category": "宏观", "title": "FOMC 维持利率在 3.75%–4.00%", "detail": "10 月决议维持目标区间，上一次政策利率变动为 9 月加息。", "source": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20261028a.htm", "status": "已发生"},
     {"date": "2026-11-04", "category": "财报", "title": "Q3 2026 财报发布", "detail": "总收入（含储备收入）$864.9M；稀释 EPS $0.84；USDC 期末 $73.879B、季度日均 $73.264B。其他收入含约 $182M ARC 预售，不能当作经常性增长；CPN 季末 30 天年化 TPV $41.3B。", "source": "https://www.circle.com/pressroom/circle-reports-third-quarter-2026-results", "status": "已发生"},

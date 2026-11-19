@@ -843,7 +843,7 @@ A: 部分接口需要积分，详见：https://tushare.pro/document/1?doc_id=108
 
 ## 十二、CRCL 监控数据源（海外：稳定币 / 美债 / 美股）
 
-> 服务于 `/crcl-monitor` 页面（Circle 投资论点追踪）。全部免费、无需 API key。
+> 服务于 `/crcl-monitor` 页面（Circle 投资论点追踪）。基础自动采集使用免费、无需 API key 的源；Arc 整月回执汇总可能需要历史索引权限。
 > 采集代码：`backend/app/core/crcl_collect.py`；官方资料补数见[更新手册第 4 节](data-supplement-runbook.md#4-circle先核对财报与事件再采集公开序列)。
 
 ### 数据源：DefiLlama Stablecoins API
@@ -861,6 +861,8 @@ A: 部分接口需要积分，详见：https://tushare.pro/document/1?doc_id=108
 
 - [DefiLlama Arc](https://defillama.com/chain/arc)：`api.llama.fi/v2/historicalChainTvl/Arc`（DeFi 锁仓）、`stablecoins.llama.fi/stablecoincharts/Arc`（链上美元稳定币市值）、`api.llama.fi/overview/dexs/Arc?excludeTotalDataChartBreakdown=true`（DEX 日成交量）。只存主网日期，DEX 排除尚未结束的 UTC 当日。
 - Circle 财报演示披露链上资产范围、累计主网 USDC 交易量及日交易笔数。此为带观测日的披露快照，不与 DefiLlama 两个资产口径接成日频曲线。
+- [DefiLlama Arc RWA](https://defillama.com/rwa/chain/arc) 的 Total RWA Onchain AUM 作为有覆盖限制的非稳定币样本。2026-11-19 核查约 529 万美元，主要为 XAUm；不是 DeFi TVL 或全链普查。
+- 手续费实测（2026-11-19）：`rpc.mainnet.arc.io` 可读链 ID、2026-10 首尾区块和 `eth_getBlockReceipts`；官方浏览器的统计端点 TLS 失败，受测 Arcscan 日汇总未返回可用数据（超时 / 530）。DefiLlama fees 返回应用/协议收费，不用于全网 gas。[Bitquery 原图](https://www.bitquery.io/investigations/arc-blockchain-six-months) 的 10 月整月日均为 3,214 USDC（已取整），只作折算参考。精确月额优先取有权限的主网交易索引，验收步骤见[更新手册](data-supplement-runbook.md#arc-月度手续费从-2026-10-utc-完整月开始)。
 
 ### 数据源：Treasury.gov 日度收益率曲线 CSV
 

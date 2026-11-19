@@ -4,6 +4,7 @@ import {
   buildStackedArea, buildScatterQuadrant, buildRadar, buildBarLineCombo,
   buildMultiLine, buildSpreadChart,
 } from '@/components/charts/options'
+import { applyTheme } from '@/design/echarts.theme'
 import type { LineSeriesOption } from 'echarts'
 
 // options.ts 的行为断言（FE-L7 + 图例/参考线正确性）。这些是纯函数：records in →
@@ -23,6 +24,14 @@ const cycleCredit = [
 ]
 
 describe('options: 结构与配色', () => {
+  it('十字线数值最多显示两位小数，日期和整数保持原样', () => {
+    const { formatter } = applyTheme({}).tooltip.axisPointer.label
+    expect(formatter({ value: 670.2702702702703 })).toBe('670.27')
+    expect(formatter({ value: -12.3456 })).toBe('-12.35')
+    expect(formatter({ value: 600 })).toBe('600')
+    expect(formatter({ value: '2020-10-16T00:00:00Z' })).toBe('2020-10-16')
+  })
+
   it('buildCreditM2Chart：2 条 series + phaseBg（filter 掉 neutral）', () => {
     const opt = buildCreditM2Chart(derivedMonthly, cycleCredit)
     const series = opt.series as Array<{ name: string; markArea?: { data: unknown[] } }>
