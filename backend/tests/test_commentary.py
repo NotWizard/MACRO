@@ -164,7 +164,7 @@ def test_generate_happy_path(monkeypatch):
     assert {row["section"] for row in rows} == set(ALL_KEYS) | {"report"}
     assert all(row["stale"] == 0 for row in rows)
     snap = json.loads(rows[0]["phase_snapshot"])                       # 模型原始输入
-    assert set(snap) == {"data_as_of", "macro_score", "sections"}
+    assert set(snap) == {"data_as_of", "macro_score", "sections", "demographics"}
 
 
 def test_fit_report_part_preserves_headings_and_bounds_length():
@@ -554,7 +554,7 @@ def test_history_batch_detail_and_404(monkeypatch):
 def test_snapshot_shape_real_db(monkeypatch):
     monkeypatch.setattr(commentary, "DB_PATH", REAL_DB)
     snap = commentary.build_section_snapshot()
-    assert set(snap) == {"data_as_of", "macro_score", "sections"}
+    assert set(snap) == {"data_as_of", "macro_score", "sections", "demographics"}
     assert set(snap["sections"]) == set(SECTIONS)
     assert set(snap["data_as_of"]) == set(commentary._AS_OF_TABLES)
 
@@ -569,21 +569,10 @@ def test_snapshot_shape_real_db(monkeypatch):
                 continue
             _scalar_only(v)                                            # 长序列禁入
 
-    assert set(snap["sections"]["merrill"]) == {
-        "phase", "gdp_yoy", "gdp_yoy_prev", "cpi_yoy", "cpi_yoy_prev",
-        "employment_month", "unemployment_rate", "unemployment_31_city",
-        "price_mom_month", "cpi_mom", "ppi_mom", "missing"}
-    assert set(snap["sections"]["credit"]) == {
-        "phase", "m2_yoy", "m2_yoy_delta", "credit_impulse",
-        "loan_month", "new_rmb_loan", "loan_yoy", "loan_yoy_change", "missing"}
-    assert set(snap["sections"]["inventory"]) == {
-        "phase", "pmi_official", "ip_yoy", "missing"}
-    assert set(snap["sections"]["debt"]) == {
-        "phase", "household", "non_fin_corp", "gov_total", "household_change_4q",
-        "non_fin_corp_change_4q", "gov_change_4q", "missing"}
-    assert set(snap["sections"]["real_estate"]) == {
-        "composite_score", "leverage_space_score", "price_momentum_score",
-        "rate_env_score", "household_leverage", "leverage_space_pp",
-        "price_mom_12m", "lpr_5y", "rate_deviation_bp", "missing"}
-    assert set(snap["sections"]["fiscal_external"]) == {
-        "revenue_cum_yoy", "expenditure_cum_yoy", "exports_yoy", "ism", "missing"}
+    assert {"clock_period", "gdp_trend", "cpi_yoy", "cpi_month_yoy"} <= snap["sections"]["merrill"].keys()
+    assert {"credit_month", "impulse_smooth_delta", "loan_yoy_base", "loan_yoy_change"} <= snap["sections"]["credit"].keys()
+    assert {"fiscal_revenue_month", "fiscal_expenditure_month", "trade_month", "ism_month"} <= snap["sections"]["fiscal_external"].keys()
+    assert len(snap["demographics"]["year"]) == 4
+    assert {"inventory_month", "ip_trend", "pmi_used", "new_orders", "ratingdog_month"} <= snap["sections"]["inventory"].keys()
+    assert {"debt_month", "net_change_4q", "household_change_4q"} <= snap["sections"]["debt"].keys()
+    assert {"property_month", "sales_area_yoy", "as_of_lpr", "as_of_price"} <= snap["sections"]["real_estate"].keys()

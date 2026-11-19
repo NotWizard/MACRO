@@ -276,7 +276,10 @@ def test_pmi_sources_are_collapsed_to_one_row_per_month(tmp_path, monkeypatch):
     # months that the source never published.
     assert len(result) >= 250
     assert result.loc[result["date"] == "2012-05-01", "pmi_caixin"].iloc[0] == 48.7
-    assert result.iloc[-1]["pmi_caixin"] == 52.1
+    # Check changed public releases by observation month, not by table tail.
+    pmi = result.set_index("date")
+    assert pmi.loc["2025-10-01", ["pmi_caixin", "pmi_caixin_svc"]].tolist() == [50.6, 52.6]
+    assert pmi.loc["2026-10-01", ["pmi_caixin", "pmi_caixin_svc"]].tolist() == [52.0, 50.8]
     assert mod._MANIFEST["tables"]["pmi"]["status"] == "updated"
     # A private PMI outage must neither block the official update nor erase
     # the verified historical values of that private series.

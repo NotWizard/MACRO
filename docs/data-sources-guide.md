@@ -519,7 +519,13 @@ df_mom = ak.macro_china_cpi_monthly()
 
 ### PMI
 
-2026-11-18 实测：官方制造/非制造 PMI 已到 10 月；RatingDog 的 10 月发布日日历可确认，但本轮未取得两份发布原文，生产保留到 9 月，不用综合指数代填。
+官方制造/非制造 PMI 已到 2026 年 10 月。2026-11-19 补回 RatingDog 制造业与服务业 2025 年 10 月至 2026 年 5 月断档，两者均为 S&P Global 的已发布实绩，不使用综合指数：
+
+- 2025 年 10–11 月：[制造业](https://www.pmi.spglobal.com/Public/Home/PressRelease/d89c3e3b4f7547478bc1331f4637dce6) / [服务业](https://www.pmi.spglobal.com/Public/Home/PressRelease/7a1af045b6b44abcaa2cb0a57c8617cc)。
+- 2025 年 12 月：[制造业](https://www.pmi.spglobal.com/Public/Home/PressRelease/278ec52752434e8281669d99355e0ddf) / [服务业](https://www.pmi.spglobal.com/Public/Home/PressRelease/037f0389f52f4273abde0b4c32bb36df)。
+- 2026 年 1–2 月：[制造业](https://www.pmi.spglobal.com/Public/Home/PressRelease/3eb133c463354543a598a1c3cf37a091) / [1 月服务业](https://www.pmi.spglobal.com/Public/Home/PressRelease/3e3bd755d04c4527b2ae6917271d9fd6) / [2 月服务业](https://www.pmi.spglobal.com/Public/Home/PressRelease/c0a20468aae04c6398bbc6f436ed343d)。
+- 2026 年 3–5 月：[制造业 3–4 月](https://www.pmi.spglobal.com/Public/Home/PressRelease/5fda5aa49e1a4c6a988623e53e1d7182)、[5 月](https://www.pmi.spglobal.com/Public/Home/PressRelease/8537e35754134e47b49b20cb288ead9c) / [服务业 3 月](https://www.pmi.spglobal.com/Public/Home/PressRelease/160f0031d2214b8ebad5e538ac4f6bbd)、[4–5 月](https://www.pmi.spglobal.com/Public/Home/PressRelease/c152f9fec9d047efa8cba4fd03fb7769)。
+- 2026 年 10 月：制造业 52.0、服务业 50.8。原文暂未取得；核对 [S&P 发布日历](https://www.pmi.spglobal.com/Public/Home/PDF/UK_Rel_Dates)、路透全文（[制造业](https://www.investing.com/news/economy-news/china-factory-growth-slows-in-october-private-pmi-shows-4989800) / [服务业](https://www.reuters.com/business/finance/chinas-services-growth-slows-three-month-low-confidence-weakens-2026-11-04/)）和 Investing 经济日历的 Actual 实绩列（[制造业](https://www.investing.com/economic-calendar/chinese-caixin-manufacturing-pmi-753) / [服务业](https://www.investing.com/economic-calendar/china-caixin-services-purchasing-managers-index-%28pmi%29-596)）一致，按转录值补入。
 
 ```python
 import akshare as ak

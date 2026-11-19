@@ -136,11 +136,29 @@ const revenueDeltas = computed<TileDelta[]>(() => [
       ? (num(latestQ.value, 'total_revenue_m')! / num(prevQ.value, 'total_revenue_m')! - 1) * 100
       : null)),
 ])
-const reserveShareDeltas = computed<TileDelta[]>(() => [
-  pctChip('储备收入同比', num(latestQ.value, 'reserve_revenue_yoy_pct')),
-])
+function quarterMoney(key: string): number | null {
+  const amount = num(latestQ.value, key)
+  return amount == null ? null : amount / 100
+}
+const reserveShare = computed(() => {
+  const reserve = quarterMoney('reserve_revenue_m'), total = quarterMoney('total_revenue_m')
+  return reserve != null && total != null && total > 0 ? reserve / total * 100 : null
+})
+const reserveShareDeltas = computed<TileDelta[]>(() => {
+  const amount = quarterMoney('reserve_revenue_m')
+  return [
+    ...(amount == null ? [] : [{ text: `储备收入 ${fmtNum(amount)} 亿美元` }]),
+    pctChip('金额同比', num(latestQ.value, 'reserve_revenue_yoy_pct')),
+  ]
+})
 const adjustedShare = computed(() => num(latestQ.value, 'adjusted_nonreserve_share_pct'))
-const oneOffRevenue = computed(() => num(latestQ.value, 'nonreserve_one_off_m'))
+const nonreserveDeltas = computed<TileDelta[]>(() => {
+  const amount = quarterMoney('other_revenue_m'), oneOff = quarterMoney('nonreserve_one_off_m')
+  return [
+    ...(amount == null ? [] : [{ text: `其他收入 ${fmtNum(amount)} 亿美元` }]),
+    ...(oneOff != null && oneOff > 0 ? [{ text: `含一次性收入 ${fmtNum(oneOff, 3)} 亿美元` }] : []),
+  ]
+})
 const consensusEPS = computed(() => num(latestQ.value, 'eps_consensus'))
 const annualizedCpnTpv = computed(() => {
   const value = num(latestQ.value, 'cpn_tpv_annualized_b')
@@ -187,7 +205,7 @@ function lineOption(m: CrclMetric | undefined, opts: { area?: boolean; unit?: st
   const div = opts.divisor ?? 1
   const vals = m.points.map((p) => +(p.value / div).toFixed(4))
   return markRaw(applyTheme({
-    xAxis: { type: 'category', data: dates, ...baseAxis({ boundaryGap: false }) },
+    xAxis: { type: 'category', data: dates, ...baseAxis({ boundaryGap: false, splitLine: { show: false } }) },
     yAxis: {
       type: 'value', ...baseAxis({ name: opts.unit ?? m.unit, scale: true }),
     },
@@ -210,8 +228,8 @@ function lineOption(m: CrclMetric | undefined, opts: { area?: boolean; unit?: st
 }
 
 const priceOpt = themedOption(() => lineOption(metrics.value.crcl_close, { unit: '美元' }))
-const usdcOpt = themedOption(() => lineOption(metrics.value.usdc_circ, { area: true, unit: '亿美元', divisor: 1e8 }))
-const totalOpt = themedOption(() => lineOption(metrics.value.stablecoin_total, { area: true, unit: '亿美元', divisor: 1e8 }))
+const usdcOpt = themedOption(() => lineOption(metrics.value.usdc_circ, { unit: '亿美元', divisor: 1e8 }))
+const totalOpt = themedOption(() => lineOption(metrics.value.stablecoin_total, { unit: '亿美元', divisor: 1e8 }))
 const arcSizeOpt = themedOption(() => {
   const byDate = new Map<string, Record<string, string | number>>()
   for (const key of ['arc_tvl', 'arc_stablecoins']) {
@@ -318,57 +336,74 @@ const latestQ = computed(() => {
       @retry="load"
     >
       <section aria-labelledby="crcl-company" class="mb-7">
-      <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-3">
-        <h2 id="crcl-company" class="text-base font-semibold text-text">公司经营与估值</h2>
-        <span v-if="latestQ" class="text-xs text-text-3">最新财报 · {{ latestQ.period }}</span>
-      </div>
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <MetricTile label="稀释 EPS" :value="num(latestQ, 'eps_actual')" :digits="2" suffix="美元"
-          :deltas="[{ text: consensusEPS == null ? '一致预期未核实' : `一致预期 ${consensusEPS.toFixed(2)} 美元` }]"
-          tip="GAAP 稀释每股收益。只有可核验且口径可比时才展示一致预期。" />
-        <MetricTile label="季度总收入" :deltas="revenueDeltas" :value="latestQ?.total_revenue_m != null ? Number(latestQ.total_revenue_m) / 100 : null" suffix="亿美元" :digits="2"
-          :tip="`含储备收入。\n\n来源：${latestQ?.source ?? '—'}`" />
-        <MetricTile label="CRCL 收盘价" :deltas="priceDeltas" :value="priceSeries.at(-1)?.value ?? null" suffix="美元" :digits="2"
-          :tip="`最近收盘：${priceSeries.at(-1)?.date ?? '—'}。日环比指较上一个交易日。`" />
-        <MetricTile label="市值" :value="valuation.market_cap != null ? valuation.market_cap / 1e8 : null" suffix="亿美元" :digits="1"
-          tip="Yahoo Finance 市值快照。" />
-        <MetricTile label="前瞻 − TTM P/E" :deltas="peDeltas" :value="peSpread" suffix="倍" :digits="1"
-          tip="Yahoo Finance 前瞻与过去 12 个月市盈率之差。一次性项目会影响 TTM，差值不单独构成盈利下滑的证据。" />
-        <MetricTile label="储备收入占比" :deltas="reserveShareDeltas" :value="latestQ?.reserve_revenue_m != null && latestQ?.total_revenue_m != null ? +(100 * Number(latestQ.reserve_revenue_m) / Number(latestQ.total_revenue_m)).toFixed(1) : null" suffix="%"
-          :tip="`储备（利息）收入占总收入比——越高越像“货币基金”。\n\n来源：季报拆解。`" />
-        <MetricTile label="非储备收入占比（披露）" :value="num(latestQ, 'nonreserve_share_pct')" suffix="%" :digits="2"
-          :deltas="oneOffRevenue == null ? [] : [{ text: `含已标注一次性收入 ${(oneOffRevenue / 100).toFixed(3)} 亿美元` }]"
-          tip="财报披露的其他收入 ÷ 总收入。包含已确认的一次性项目，不能直接代表持续经营趋势。" />
-        <MetricTile label="非储备收入占比（调整后）" :value="adjustedShare" suffix="%" :digits="2" accent
-          tip="告警口径：从其他收入和总收入同时剔除已标注的一次性收入。它不等于经审计的经常性收入占比；没有已标注项目的季度沿用披露值。" />
-        <MetricTile label="分发与交易成本率" :value="num(latestQ, 'distribution_cost_ratio_pct')" suffix="%" :digits="2"
-          tip="季报中的分发、交易及其他成本 ÷ 总收入；不等同于支付给单个渠道的分成。" />
-        <MetricTile label="USDC 流通量" :deltas="usdcDeltas" :value="stableSnap.usdc_circ != null ? Number(stableSnap.usdc_circ) / 1e8 : null" suffix="亿美元" :digits="1"
-          tip="DefiLlama 的 USDC 全链流通量，不是 Arc 或 CPN 专属指标。" />
-        <MetricTile label="稳定币总市值" :deltas="totalDeltas" :value="stableSnap.stablecoin_total != null ? Number(stableSnap.stablecoin_total) / 1e8 : null" suffix="亿美元" :digits="0"
-          tip="DefiLlama 全链行业口径，用于比较 USDC 与市场整体增长。" />
-        <MetricTile label="EURC 流通量" :value="stableSnap.eurc_circ != null ? Number(stableSnap.eurc_circ) / 1e8 : null" suffix="亿欧元" :digits="2"
-          :deltas="eurcDeltas" tip="卡片为 DefiLlama 最新流通量；环比比较来自最近两期可比财报。" />
-      </div>
+        <h2 id="crcl-company" class="text-base font-semibold text-text mb-3">公司经营与估值</h2>
+        <div class="space-y-4">
+          <section aria-labelledby="crcl-valuation">
+            <h3 id="crcl-valuation" class="text-sm font-medium text-text-2 mb-2">股价、估值与每股收益</h3>
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <MetricTile label="CRCL 收盘价" :deltas="priceDeltas" :value="priceSeries.at(-1)?.value ?? null" suffix="美元" :digits="2"
+                :period="priceSeries.at(-1)?.date" tip="日环比指较上一个交易日。" />
+              <MetricTile label="市值" :value="valuation.market_cap != null ? valuation.market_cap / 1e8 : null" suffix="亿美元" :digits="1"
+                tip="Yahoo Finance 市值快照，不一定与最近收盘价同一时点。" />
+              <MetricTile label="P/E（前瞻 − TTM）" :deltas="peDeltas" :value="peSpread" suffix="倍" :digits="1"
+                tip="Yahoo Finance 前瞻与过去 12 个月市盈率之差。一次性项目会影响 TTM，差值不单独构成盈利下滑的证据。" />
+              <MetricTile label="稀释 EPS" :value="num(latestQ, 'eps_actual')" :digits="2" suffix="美元"
+                :period="latestQ?.period == null ? null : String(latestQ.period)"
+                :deltas="[{ text: consensusEPS == null ? '一致预期未核实' : `一致预期 ${consensusEPS.toFixed(2)} 美元` }]"
+                tip="财报披露的 GAAP 稀释每股收益。只有可核验且口径可比时才展示一致预期。" />
+            </div>
+          </section>
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <GraphCard title="CRCL 收盘价" height="280px" :loading="loading" :error="errorText" @retry="load"
-          :tip="`IPO 以来日线收盘价。\n\n取数：AKShare stock_us_daily('CRCL')（主源）→ yfinance history（备用源），日频。`">
-          <EChart v-if="priceOpt" :option="priceOpt" height="280px" />
-        </GraphCard>
-        <GraphCard title="USDC 流通量" height="280px" :loading="loading" :error="errorText" @retry="load"
-          :tip="`2018 年至今完整历史。同比增速是黄色警报规则 y_usdc_growth 的输入（阈值 15%）。\n\n取数：DefiLlama，日频。`">
-          <EChart v-if="usdcOpt" :option="usdcOpt" height="280px" />
-        </GraphCard>
-        <GraphCard title="稳定币总市值（行业水位）" height="280px" :loading="loading" :error="errorText" @retry="load"
-          :tip="`全部稳定币合计市值——决定 Circle 增长的行业水位。\n\n取数：DefiLlama stablecoincharts/all，日频。`">
-          <EChart v-if="totalOpt" :option="totalOpt" height="280px" />
-        </GraphCard>
-        <GraphCard title="短端美债收益率（储备收入）" height="280px" :loading="loading" :error="errorText" @retry="load"
-          tip="短端收益率影响储备利息。实际影响还取决于 USDC 流通量、资产组合和分发成本。来源：美国财政部。">
-          <EChart v-if="treasuryOpt" :option="treasuryOpt" height="280px" />
-        </GraphCard>
-      </div>
+          <section aria-labelledby="crcl-income">
+            <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-2">
+              <h3 id="crcl-income" class="text-sm font-medium text-text-2">收入构成与成本</h3>
+              <span v-if="latestQ" class="text-xs text-text-3">财报 · {{ latestQ.period }}</span>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+              <MetricTile label="季度总收入" :deltas="revenueDeltas" :value="quarterMoney('total_revenue_m')" suffix="亿美元" :digits="2"
+                :tip="`含储备收入。\n\n来源：${latestQ?.source ?? '—'}`" />
+              <MetricTile label="储备收入占比" :deltas="reserveShareDeltas" :value="reserveShare" suffix="%" :digits="1"
+                tip="储备收入 ÷ 当季度总收入，衡量收入对储备利息的依赖程度。" />
+              <MetricTile label="非储备收入占比（披露）" :value="num(latestQ, 'nonreserve_share_pct')" suffix="%" :digits="2"
+                :deltas="nonreserveDeltas" tip="财报披露的其他收入 ÷ 总收入。包含已确认的一次性项目，不能直接代表持续经营趋势。" />
+              <MetricTile label="非储备收入占比（调整后）" :value="adjustedShare" suffix="%" :digits="2" accent
+                tip="告警口径：从其他收入和总收入同时剔除已标注的一次性收入。它不等于经审计的经常性收入占比；没有已标注项目的季度沿用披露值。" />
+              <MetricTile label="分发与交易成本率" :value="num(latestQ, 'distribution_cost_ratio_pct')" suffix="%" :digits="2"
+                tip="季报中的分发、交易及其他成本 ÷ 总收入；不等同于支付给单个渠道的分成。" />
+            </div>
+          </section>
+
+          <section aria-labelledby="crcl-stablecoins">
+            <h3 id="crcl-stablecoins" class="text-sm font-medium text-text-2 mb-2">稳定币规模与行业对照</h3>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <MetricTile label="USDC 流通量" :deltas="usdcDeltas" :value="stableSnap.usdc_circ != null ? Number(stableSnap.usdc_circ) / 1e8 : null" suffix="亿美元" :digits="1"
+                tip="DefiLlama 的 USDC 全链流通量，不是 Arc 或 CPN 专属指标。" />
+              <MetricTile label="EURC 流通量" :value="stableSnap.eurc_circ != null ? Number(stableSnap.eurc_circ) / 1e8 : null" suffix="亿欧元" :digits="2"
+                :deltas="eurcDeltas" tip="卡片为 DefiLlama 最新流通量；环比比较来自最近两期可比财报。" />
+              <MetricTile label="稳定币总市值" :deltas="totalDeltas" :value="stableSnap.stablecoin_total != null ? Number(stableSnap.stablecoin_total) / 1e8 : null" suffix="亿美元" :digits="0"
+                tip="DefiLlama 全部链的美元锚定稳定币市值，用于比较 USDC 与行业整体变化。" />
+            </div>
+          </section>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+          <GraphCard title="CRCL 收盘价" height="280px" :loading="loading" :error="errorText" @retry="load"
+            :tip="`IPO 以来日线收盘价。\n\n取数：AKShare stock_us_daily('CRCL')（主源）→ yfinance history（备用源），日频。`">
+            <EChart v-if="priceOpt" :option="priceOpt" height="280px" />
+          </GraphCard>
+          <GraphCard title="短端美债收益率（储备收入）" height="280px" :loading="loading" :error="errorText" @retry="load"
+            tip="短端收益率影响储备利息。实际影响还取决于 USDC 流通量、资产组合和分发成本。来源：美国财政部。">
+            <EChart v-if="treasuryOpt" :option="treasuryOpt" height="280px" />
+          </GraphCard>
+          <GraphCard title="USDC 流通量" height="280px" :loading="loading" :error="errorText" @retry="load"
+            tip="DefiLlama 全链日频序列。流通量同比是告警规则 y_usdc_growth 的输入（阈值 15%）。">
+            <EChart v-if="usdcOpt" :option="usdcOpt" height="280px" />
+          </GraphCard>
+          <GraphCard title="稳定币总市值（行业水位）" height="280px" :loading="loading" :error="errorText" @retry="load"
+            tip="全链美元锚定稳定币总市值；包含 USDC，不能与 USDC 流通量相加。来源：DefiLlama，日频。">
+            <EChart v-if="totalOpt" :option="totalOpt" height="280px" />
+          </GraphCard>
+        </div>
       </section>
 
       <section aria-labelledby="crcl-products" class="mb-7">

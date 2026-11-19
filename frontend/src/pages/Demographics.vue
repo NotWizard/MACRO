@@ -20,6 +20,8 @@ const { data, errorText: error, loading, retry: load } = useAsyncData(async (sig
 }, { watch: [() => filters.start, () => filters.end, () => refresh.lastRefreshedAt] })
 
 const dm = computed<Rec[]>(() => data.value ?? [])
+const yearRows = computed(() => dm.value.map((row) => ({ ...row, date: String(row.date).slice(0, 4) })))
+const lastYear = computed(() => yearRows.value.at(-1)?.date)
 
 function latest(col: string): number | null {
   // dm 按日期升序, 从后往前取第一个有值行 = 最新一年
@@ -32,10 +34,10 @@ function latest(col: string): number | null {
 
 // Options built in computeds (not the template) → one markRaw'd object per
 // rebuild that ECharts merges into the live instance.
-const urbanOpt = themedOption(() => (buildMultiLine(dm.value, [{ col: 'urbanization_rate', name: '城镇化率' }], '%')))
-const popOpt = themedOption(() => (buildMultiLine(dm.value, [{ col: 'population', name: '年末总人口' }], '万人')))
-const birthOpt = themedOption(() => (buildMultiLine(dm.value, [{ col: 'birth_rate', name: '出生率' }, { col: 'natural_growth_rate', name: '自然增长率' }], '‰', 0, '零线')))
-const ageOpt = themedOption(() => (buildMultiLine(dm.value, [
+const urbanOpt = themedOption(() => (buildMultiLine(yearRows.value, [{ col: 'urbanization_rate', name: '城镇化率' }], '%')))
+const popOpt = themedOption(() => (buildMultiLine(yearRows.value, [{ col: 'population', name: '年末总人口' }], '万人')))
+const birthOpt = themedOption(() => (buildMultiLine(yearRows.value, [{ col: 'birth_rate', name: '出生率' }, { col: 'natural_growth_rate', name: '自然增长率' }], '‰', 0, '零线')))
+const ageOpt = themedOption(() => (buildMultiLine(yearRows.value, [
   { col: 'age_65plus_pct', name: '65 岁以上人口占比' },
   { col: 'dependency_ratio', name: '抚养比' },
 ], '%')))
@@ -45,7 +47,7 @@ const ageOpt = themedOption(() => (buildMultiLine(dm.value, [
   <div class="p-6 space-y-5">
     <header>
       <h1 class="text-xl font-bold text-text">人口与城镇化</h1>
-      <p class="text-xs text-text-3 mt-1">城镇化 · 人口结构 · 出生率 · 抚养比</p>
+      <p class="text-xs text-text-3 mt-1">年度数据<span v-if="lastYear"> · 所选区间最新为 {{ lastYear }} 年</span>。图表年份是统计所属年，不是发布日期。</p>
     </header>
 
     <!-- KPI -->
@@ -67,7 +69,7 @@ const ageOpt = themedOption(() => (buildMultiLine(dm.value, [
         <div class="text-2xl font-bold text-text mt-1">{{ latest('natural_growth_rate')?.toFixed(2) ?? '—' }}<span class="text-sm text-text-3 ml-0.5">‰</span></div>
       </div>
       <div class="bg-card border border-border rounded-xl p-4">
-        <div class="text-xs text-text-3">65 岁以上占比</div>
+        <div class="text-xs text-text-3">65 岁及以上占比</div>
         <div class="text-2xl font-bold text-text mt-1">{{ latest('age_65plus_pct')?.toFixed(1) ?? '—' }}<span class="text-sm text-text-3 ml-0.5">%</span></div>
       </div>
       <div class="bg-card border border-border rounded-xl p-4">

@@ -166,11 +166,11 @@ def compute_derived(conn):
         nc = new_credit.copy()
         nc["date"] = pd.to_datetime(nc["date"])
         ncm = _monthly(nc, ["new_rmb_loan"])
-        # Net flows can be negative. A non-positive base makes a percentage
-        # misleading (net repayments ballooning is not positive growth).
+        # Net flows can be negative. Normalize by the magnitude of the prior
+        # flow so the percentage and the amount change have the same sign.
         prior = ncm["new_rmb_loan"].shift(12)
-        ncm["loan_yoy"] = (ncm["new_rmb_loan"].div(prior.where(prior > 0)) - 1) * 100
         ncm["loan_yoy_change"] = ncm["new_rmb_loan"] - prior
+        ncm["loan_yoy"] = ncm["loan_yoy_change"].div(prior.abs().where(prior.ne(0))) * 100
         # 新增贷款 12 月滚动累计（同 total_12m：窗口必须满 12 个月）
         ncm["loan_12m"] = ncm["new_rmb_loan"].rolling(12, min_periods=12).sum()
         ncm["loan_stock_yoy"] = ncm["loan_12m"].pct_change(12) * 100

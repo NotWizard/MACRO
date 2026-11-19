@@ -36,14 +36,14 @@ jq '{ts, committed, derived, tables, sources}' data/last_run.json
 | leverage | CNBS 经 AKShare，NIFD 季报补充 | 日期写**季末月**；季度发布后核对六个部门，见第 3 节。 |
 | social_finance | AKShare 镜像；央行调查统计司「社会融资规模增量」XLSX | 按**当月增量**亿元，不用存量或年初至今累计；见第 3 节。 |
 | lpr | 东财；央行/全国银行间同业拆借中心公告 | 1 年期和 5 年期以上，期次按报价月；公告前旧月保留。 |
-| industrial | AKShare/NBS；统计局工业生产发布 | 规上工业增加值；1–2 月合报不能补作两个独立观测。 |
+| industrial | AKShare/NBS；[统计局工业生产发布](https://www.stats.gov.cn/sj/zxfb/202603/t20260316_1962782.html) | 核验规上工业增加值的 `ip_yoy`（当月同比）和 `ip_cumulative`（年内累计同比）。近年来的 1–2 月同比合报显示在独立点位，不填 1 月、2 月单月，不进入库存相位。历史若有单独原始月值要保留。 |
 | domestic_demand | 东财社零、固投；NBS 失业率 API → 国民经济发布与就业解读 → 历史公开表 | 社零/固投当月与累计分开；全国和 31 城分别核实。旧网页搬迁后的目录年月不是出版日期，读实际原文日期；1–2 月合报不代表两个月同值。 |
 | house_price | AKShare 统计局 70 城数据 | 生产表仅跟踪 10 城样本；按日期与城市去重，核验各城市的新房/二手房，不称全国 70 城广度。 |
 | real_estate_activity | 统计局「全国房地产市场基本情况」正文/表格 | 扫最近 15 期并累积旧期；核对累计开发投资、销售额/面积、新开工、竣工、待售、到位资金，不把累计值当单月，1 月通常无独立值。 |
 | household_income | NBS「人民生活→全国居民人均收入情况」及总人口 | 年度全国居民人均可支配收入×总人口；核对 `income_per_capita`、`population_10k`、`income_abs`，不可换成城镇专口径。 |
-| new_credit | AKShare 的新增人民币贷款镜像；对照央行同口径明细 | 先核对金融机构贷款或社融分项的口径，不互相覆盖。`loan_yoy` 只在去年同月基数为正时计算；`loan_yoy_change` 记录实际金额之差（亿元）。`sf_stock_yoy` 是近 12 月社融增量累计同比，不是官方存量同比。 |
+| new_credit | AKShare 的新增人民币贷款镜像；对照央行同口径明细 | 先核对金融机构贷款或社融分项的口径，不互相覆盖。`loan_yoy_change` 是同比金额差（亿元），`loan_yoy` 为金额差 ÷ 去年同月净增量的绝对值 × 100，非官方同比率；基期零或缺值时不报百分比，负基数优先解释金额差。`sf_stock_yoy` 是近 12 月社融增量累计同比，不是官方存量同比。 |
 | bond_yield | [中债信息网](https://www.chinabond.com.cn/) 国债收益率曲线 | 10 年期收益率，进行中的月允许是已到日的月度观测，不当完整月。 |
-| demographics | 统计局人口公报优先；[世界银行 WDI](https://data.worldbank.org/country/china) 补长历史/结构 | 年度人口、城镇化、出生率、自然增长率、65 岁及以上占比、抚养比逐字段验收。总人口单位为万人，出生/自然增长率为 ‰，占比为 %；不拿不同源的出生/死亡率随意混算。 |
+| demographics | 统计局人口公报优先；[世界银行 WDI](https://data.worldbank.org/country/china) 补长历史/结构 | 年度人口、城镇化、出生率、自然增长率、65 岁及以上占比、抚养比逐字段验收。库内 `YYYY-01-01` 仅作统计年键，不是年初人口或发布日期；网站只显示年份。总人口单位为万人，出生/自然增长率为 ‰，占比为 %。 |
 | fiscal | NBS 优先，东财收入兜底；[财政部财政数据](https://www.mof.gov.cn/gkml/caizhengshuju/) | 全国一般公共预算累计收入、支出（亿元及累计同比），不是政府性基金；收入有新月不代表支出同月已发布。 |
 | external_demand | NBS 货物进出口，东财海关补空；[ISM 制造业报告](https://www.ismworld.org/supply-management-news-and-reports/reports/ism-pmi-reports/) | 同期同币种，区分当月及累计和美元/人民币口径；美国 ISM 是制造业主指数，不是 S&P PMI 或分项。 |
 
@@ -60,7 +60,7 @@ jq '{ts, committed, derived, tables, sources}' data/last_run.json
 | 常量 → 表 | 官方资料及录入字段 |
 |---|---|
 | _ISM_SUPPLEMENT → external_demand | ISM 新闻稿中的 Manufacturing PMI；键为参考月 `YYYY-MM-01`，不是次月发稿日。 |
-| _RATINGDOG_SUPPLEMENT → pmi | S&P Global / RatingDog 的制造业 PMI 与服务业商务活动指数原文（两份，允许一方缺失留空）；元组 `(制造业, 服务业)`。不能拿同名综合产出指数，或混进 NBS。若只取得第三方数字，记录核验情况，不把新闻摘要当正式来源。 |
+| _RATINGDOG_SUPPLEMENT → pmi | 首选 S&P Global / RatingDog 制造业 PMI 与服务业商务活动指数原文；元组 `(制造业, 服务业)`。原文不可得时，官方日历校验期次，完整报道和另一数据源实绩列独立核对，注明转录与来源；不能用新闻搜索摘要、预期值或综合指数代填。 |
 | _MOF_SUPPLEMENT → fiscal | 财政部「全国一般公共预算收支情况」；`date`、`revenue_cum`、`revenue_cum_yoy`、`expenditure_cum`、`expenditure_cum_yoy`，原文未披露的字段空着，保留前期记录。 |
 | _UNEMPLOYMENT_SUPPLEMENT → domestic_demand | 统计局国民经济运行稿；`date`、`unemployment_rate` 和 `unemployment_31_city`；用当月值，不用年平均或青年失业率。 |
 | _NBS_BIRTH_NATURAL → demographics | 统计局年度国民经济和社会发展统计公报；年度 `YYYY-01-01` 对应 `(出生率‰, 自然增长率‰)`。WDI 子序列超时应保留旧期有效值，用第 5 节对比，不能因总行数不变就略过。 |
@@ -99,6 +99,12 @@ PY
 采集 USDC（stablecoin=2）、EURC（=50；欧元口径）和稳定币全市场；Treasury.gov CSV 回填近两年的 3M/6M/1Y；CRCL 日线 AKShare 主、yfinance 备；估值用 yfinance。DefiLlama 还提供 Arc DeFi TVL、链上稳定币市值及 DEX 日成交量：只采 2026-09-16 主网上线以后的值，DEX 用已完结 UTC 日；逐序列验收，三项不能相加。收盘/美债只在有效交易日出现；不要把快照采集时刻当行情日。空估值不覆盖旧值，逐项检查 `steps`，顶层 `status=ok` 也可能是部分成功。
 
 也可用页面「采集 CRCL」，或带本地令牌调用 `POST /api/v1/crcl/refresh`，再持续订阅 `GET /api/v1/crcl/refresh/stream?job_id=…` 到终态。应用启动默认也会自动采集一次（`CRCL_STARTUP_COLLECT=0` 可关）；CLI 与页面二选一。
+
+### 按页面分组回读
+
+- **股价、估值与每股收益**：收盘价核对最后一个有效交易日；市值与 P/E 核对 Yahoo Finance 估值快照，不强行对齐收盘日。P/E 卡主值为前瞻 P/E 减 TTM P/E，两个源值都存在才算差；稀释 EPS 是对应财季的 GAAP 单季实际值，不是 TTM EPS 或预期。
+- **收入构成与成本**：从同一财季核对总收入、储备收入、其他收入和分发相关成本。金额以亿美元展示（财报 `_m` 字段除以 100），占比仍用同口径分母；披露与剔除一次性项目后的非储备占比要分别核对。
+- **稳定币规模与行业对照**：分别核对 `usdc_circ`、`eurc_circ`、`stablecoin_total` 的最新有效日期。前两项按币种取全链流通量，行业总市值取全链美元锚定稳定币（包含 USDC，不与其相加）。USDC 和总市值图是各自的日频值，浏览器悬浮复核日期、亿美元单位和时序缩放；不拿财报期末点或 Arc 单链数据覆盖。
 
 ## 5. 验收：看库里的有效值，然后出具交接摘要
 

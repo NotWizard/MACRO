@@ -1,7 +1,7 @@
 // ECharts option builders — one per chart family. Pure functions: records in,
 // option out. Each applies the Terminal Fintech theme (≈ _apply_layout).
 
-import { applyTheme, baseAxis, chartTheme } from '@/design/echarts.theme'
+import { applyTheme, axisTooltipFormatter, baseAxis, chartTheme } from '@/design/echarts.theme'
 import { phaseColor, phaseLabel } from '@/design/phases'
 import { hexA, mergePhaseSegments } from './utils'
 import type { EChartsOption, LineSeriesOption, ScatterSeriesOption } from 'echarts'
@@ -328,7 +328,7 @@ export function buildRadar(assessment: {
 export function buildBarLineCombo(
   derived: Rec[], barCol: string, lineCol: string,
   barName: string, lineName: string,
-  barUnit = '', lineUnit = '',
+  barUnit = '', lineUnit = '', tooltipNote?: (row: Rec) => string,
 ): EChartsOption {
   const { colors: COLORS, palette: PALETTE } = chartTheme()
   const rows = trimEmptyEdges(derived, [barCol, lineCol])
@@ -339,6 +339,12 @@ export function buildBarLineCombo(
   return themed({
     grid: dualGrid,
     legend: { top: 0 },
+    tooltip: tooltipNote ? { formatter: (params) => {
+      const first = Array.isArray(params) ? params[0] : params
+      const row = first && rows[first.dataIndex]
+      const note = row ? tooltipNote(row) : ''
+      return axisTooltipFormatter(params) + (note ? `<div style="margin-top:4px">${note}</div>` : '')
+    } } : undefined,
     xAxis: { type: 'category', data: dates, ...bottomXAxis() },
     yAxis: [
       { type: 'value', name: barUnit, ...baseAxis(), ...barRange },

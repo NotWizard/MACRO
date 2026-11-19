@@ -135,42 +135,62 @@ def _latest_observation(table: str, period_key: str, anchor: str, *fields: str) 
 
 
 def _sec_merrill() -> dict:
-    df = classify_merrill(str(DB_PATH))   # 年频，「上期」= 上一年
+    df = classify_merrill(str(DB_PATH))   # one visible observation per year
     last = df.iloc[-1]
     prev = df.iloc[-2] if len(df) > 1 else None
+    prices = _latest_observation("derived_monthly", "price_mom_month", "cpi_mom", "ppi_mom", "cpi_yoy", "ppi_yoy")
+    prices["cpi_month_yoy"] = prices.pop("cpi_yoy", None)
     return {"phase": str(last["phase"]),
+            "clock_period": str(last["date"])[:7],
+            "clock_prev_period": None if prev is None else str(prev["date"])[:7],
             "gdp_yoy": _r(last["gdp_yoy"]),
+            "gdp_trend": _r(last["gdp_trend"]),
             "gdp_yoy_prev": None if prev is None else _r(prev["gdp_yoy"]),
             "cpi_yoy": _r(last["cpi_yoy"]),
             "cpi_yoy_prev": None if prev is None else _r(prev["cpi_yoy"]),
+            **_latest_observation("domestic_demand", "demand_month", "retail_yoy", "fai_yoy"),
             **_latest_observation("domestic_demand", "employment_month", "unemployment_rate", "unemployment_31_city"),
-            **_latest_observation("derived_monthly", "price_mom_month", "cpi_mom", "ppi_mom")}
+            **prices}
 
 
 def _sec_credit() -> dict:
     df = classify_credit(str(DB_PATH))
     last = df.iloc[-1]
+    loan = _latest_observation("derived_monthly", "loan_month", "new_rmb_loan", "loan_yoy", "loan_yoy_change")
+    if loan and loan["loan_yoy_change"] is not None:
+        loan["loan_yoy_base"] = _r(loan["new_rmb_loan"] - loan["loan_yoy_change"])
     return {"phase": str(last["phase"]),
+            "credit_month": str(last["date"])[:7],
             "m2_yoy": _r(last["m2_yoy"]),
             "m2_yoy_delta": _r(df["m2_yoy"].diff(1).iloc[-1]),
             "credit_impulse": _r(last["credit_impulse"]),
-            **_latest_observation("derived_monthly", "loan_month", "new_rmb_loan", "loan_yoy", "loan_yoy_change")}
+            "impulse_smooth": _r(last["impulse_smooth"]),
+            "impulse_smooth_delta": _r(df["impulse_smooth"].diff(1).iloc[-1]),
+            **loan,
+            **_latest_observation("derived_monthly", "social_finance_month", "sf_stock_yoy")}
 
 
 def _sec_inventory() -> dict:
     last = classify_inventory(str(DB_PATH)).iloc[-1]
     return {"phase": str(last["phase"]),
+            "inventory_month": str(last["date"])[:7],
             "pmi_official": _r(last["pmi_official"]),
-            "ip_yoy": _r(last["ip_yoy"])}
+            "pmi_used": _r(last["pmi_used"]), "pmi_stale_months": _r(last["pmi_stale_months"]),
+            "ip_yoy": _r(last["ip_yoy"]), "ip_trend": _r(last["ip_trend"]),
+            **_latest_observation("pmi", "ratingdog_month", "pmi_caixin", "pmi_caixin_svc"),
+            **_latest_observation("pmi_detail", "orders_month", "new_orders", "production",
+                                  "raw_material_inventory", "finished_goods_inventory")}
 
 
 def _sec_debt() -> dict:
     df = classify_debt(str(DB_PATH))
     last = df.iloc[-1]
     return {"phase": str(last["overall_phase"]),
+            "debt_month": str(last["date"])[:7],
             "household": _r(last["household"]),
             "non_fin_corp": _r(last["non_fin_corp"]),
             "gov_total": _r(last["gov_total"]),
+            "net_change_4q": _r(last["net_change"]),
             # classify_debt 不返回 4 季差分列 → 对返回 df 现算，analysis/ 零 diff
             "household_change_4q": _r(df["household"].diff(4).iloc[-1]),
             "non_fin_corp_change_4q": _r(df["non_fin_corp"].diff(4).iloc[-1]),
@@ -179,19 +199,23 @@ def _sec_debt() -> dict:
 
 def _sec_real_estate() -> dict:
     a = analyze_real_estate(str(DB_PATH))["assessment"]
-    return {k: _r(a[k]) for k in ("composite_score", "leverage_space_score",
-                                  "price_momentum_score", "rate_env_score",
-                                  "household_leverage", "leverage_space_pp",
-                                  "price_mom_12m", "lpr_5y", "rate_deviation_bp")}
+    values = {k: _r(a[k]) for k in ("composite_score", "leverage_space_score",
+                                   "price_momentum_score", "rate_env_score",
+                                   "household_leverage", "leverage_space_pp",
+                                   "price_mom_12m", "lpr_5y", "rate_deviation_bp")}
+    for measure in ("leverage_space", "price_momentum", "rate_env"):
+        if not a[f"{measure}_available"]:
+            values[f"{measure}_score"] = None
+    return {**values, **{k: a[k] for k in ("as_of_leverage", "as_of_price", "as_of_lpr")},
+            **_latest_observation("real_estate_activity", "property_month", "sales_area_yoy", "investment_yoy")}
 
 
 def _sec_fiscal_external() -> dict:
-    fis = _load_full("fiscal").iloc[-1]
-    ext = _load_full("external_demand").iloc[-1]
-    return {"revenue_cum_yoy": _r(fis["revenue_cum_yoy"]),
-            "expenditure_cum_yoy": _r(fis["expenditure_cum_yoy"]),
-            "exports_yoy": _r(ext["exports_yoy"]),
-            "ism": _r(ext["us_ism_pmi"])}
+    ism = _latest_observation("external_demand", "ism_month", "us_ism_pmi")
+    return {**_latest_observation("fiscal", "fiscal_revenue_month", "revenue_cum_yoy"),
+            **_latest_observation("fiscal", "fiscal_expenditure_month", "expenditure_cum_yoy"),
+            **_latest_observation("external_demand", "trade_month", "exports_yoy", "imports_yoy"),
+            "ism_month": ism.get("ism_month"), "ism": ism.get("us_ism_pmi")}
 
 
 _BUILDERS = {"merrill": _sec_merrill, "credit": _sec_credit,
@@ -199,18 +223,22 @@ _BUILDERS = {"merrill": _sec_merrill, "credit": _sec_credit,
              "real_estate": _sec_real_estate, "fiscal_external": _sec_fiscal_external}
 
 _FIELDS = {
-    "merrill": ("phase", "gdp_yoy", "gdp_yoy_prev", "cpi_yoy", "cpi_yoy_prev",
-                "employment_month", "unemployment_rate", "unemployment_31_city",
-                "price_mom_month", "cpi_mom", "ppi_mom"),
-    "credit": ("phase", "m2_yoy", "m2_yoy_delta", "credit_impulse",
-               "loan_month", "new_rmb_loan", "loan_yoy", "loan_yoy_change"),
-    "inventory": ("phase", "pmi_official", "ip_yoy"),
-    "debt": ("phase", "household", "non_fin_corp", "gov_total",
+    "merrill": ("phase", "clock_period", "clock_prev_period", "gdp_yoy", "gdp_trend", "gdp_yoy_prev", "cpi_yoy", "cpi_yoy_prev",
+                "demand_month", "retail_yoy", "fai_yoy", "employment_month", "unemployment_rate", "unemployment_31_city",
+                "price_mom_month", "cpi_month_yoy", "ppi_yoy", "cpi_mom", "ppi_mom"),
+    "credit": ("phase", "credit_month", "m2_yoy", "m2_yoy_delta", "credit_impulse", "impulse_smooth", "impulse_smooth_delta",
+               "loan_month", "new_rmb_loan", "loan_yoy", "loan_yoy_base", "loan_yoy_change", "social_finance_month", "sf_stock_yoy"),
+    "inventory": ("phase", "inventory_month", "pmi_official", "pmi_used", "pmi_stale_months", "ip_yoy", "ip_trend", "orders_month",
+                  "new_orders", "production", "raw_material_inventory", "finished_goods_inventory",
+                  "ratingdog_month", "pmi_caixin", "pmi_caixin_svc"),
+    "debt": ("phase", "debt_month", "household", "non_fin_corp", "gov_total", "net_change_4q",
              "household_change_4q", "non_fin_corp_change_4q", "gov_change_4q"),
     "real_estate": ("composite_score", "leverage_space_score", "price_momentum_score",
                     "rate_env_score", "household_leverage", "leverage_space_pp",
-                    "price_mom_12m", "lpr_5y", "rate_deviation_bp"),
-    "fiscal_external": ("revenue_cum_yoy", "expenditure_cum_yoy", "exports_yoy", "ism"),
+                    "price_mom_12m", "lpr_5y", "rate_deviation_bp", "as_of_leverage", "as_of_price", "as_of_lpr",
+                    "property_month", "sales_area_yoy", "investment_yoy"),
+    "fiscal_external": ("fiscal_revenue_month", "revenue_cum_yoy", "fiscal_expenditure_month", "expenditure_cum_yoy",
+                        "trade_month", "exports_yoy", "imports_yoy", "ism_month", "ism"),
 }
 
 _AS_OF_TABLES = ("derived_monthly", "derived_quarterly", "leverage",
@@ -250,120 +278,88 @@ def build_section_snapshot() -> dict:
         macro_score = compute_signals(str(DB_PATH)).get("macro_score")
     except Exception:
         macro_score = None
-    return {"data_as_of": _data_as_of(), "macro_score": macro_score, "sections": sections}
+    try:
+        population = _latest_observation("demographics", "year", "population", "urbanization_rate",
+                                         "natural_growth_rate", "age_65plus_pct", "dependency_ratio")
+        if population:
+            population["year"] = population["year"][:4]
+    except Exception:
+        population = {}
+    return {"data_as_of": _data_as_of(), "macro_score": macro_score, "sections": sections,
+            "demographics": population}
 
 
 # ── Templates: defaults + ai_config overrides + version hash ─────────────────
 
-# 默认提示词（v2，2026-08-30 重写）：每板块 = 框架语义 + 字段口径 + 必答任务 + 写作结构。
-# 长度约束与后端校验一致（每板块 ≤600 字）；数值引用必须带单位与口径，禁止编造。
+# Default research brief. Formatting is enforced separately by the output
+# contract, so each editable template can focus on the economics.
 DEFAULT_TEMPLATES = {
     "system": (
-        "你是资深宏观经济分析师，为一套中国宏观周期监测系统撰写研究备忘录。"
-        "写作规则：① 只引用数据快照中出现的数值，且引用时必须带单位与口径（如「M2 同比 7.7%」"
-        "「居民杠杆率 59.0%」）；快照没有的一概不写，不得编造任何指标、日期、趋势或历史对比；"
-        "② 术语以国家统计局/中国人民银行官方口径为准；CPI、PPI、M2、PMI、LPR、GDP、ISM 等"
-        "保留英文缩写；③ 不给任何投资建议或买卖指引，只做形势研判；④ 行文正式、精炼、书面化，"
-        "用「本期/上期/边际」等研究语汇，禁止口语化表达与emoji；⑤ 最终输出必须是合法 JSON，"
-        "除 JSON 外不含任何文字、注释或 markdown 围栏。"
+        "你负责中国宏观研究。读者要知道当前是扩张、放缓还是分化，哪些数据支持判断，什么变化会让你改判。"
+        "先给判断，再给最能区分解释的证据，最后落到可观察的下一步。数值必须来自快照，写清观测期、单位、比较基期；"
+        "同月、季末、年内累计和上一年末不是同一口径。百分比与百分点分开。"
+        "现象、机制推断与未知分开：同步变化不能写成因果，单月不能写成趋势，缺数不能写成零、持平或没有风险。"
+        "不硬凑结论或反证，不复述框架定义，不列数字清单，不给投资建议。"
+        "用简洁、可核对的中文；不用字段名、英文相位代号或模型生成过程代替解释。"
     ),
-    # 每板块规定必答：现状定位 / 边际变化 / 矛盾张力 / 含义；精准备忘录 3-5 句
     "merrill": (
-        "为「美林投资时钟」板块写 3-5 句研究备忘录。框架语义：以 GDP 同比相对潜在增长（5 期中位数趋势）"
-        "定义增长方向，以 CPI 同比相对 2% 定义通胀方向，四象限为复苏/过热/滞胀/衰退。"
-        "快照字段：phase（当前阶段）、gdp_yoy/gdp_yoy_prev（本期与上年同期 GDP 同比 %）、"
-        "cpi_yoy/cpi_yoy_prev（本期与上年同期 CPI 同比 %）。"
-        "employment_month 对应全国及 31 城调查失业率（unemployment_rate、unemployment_31_city，%）；"
-        "price_mom_month 对应 CPI/PPI 环比（cpi_mom、ppi_mom，%）。这些月度观测用作交叉验证，不能代替时钟坐标。"
-        "写作结构：先点明当前阶段判定及两轴取值；再说明相对上期的边际迁移方向；"
-        "若取值与阶段含义存在张力（如增长仍在趋势之上但通胀逼近阈值），指出并解释；"
-        "末句给出该阶段在框架内的标准含义（如复苏=增长升+通胀降）。"
-        "输出格式：按上述结构分 3-4 行，每行一个要点，以「**核心判断**」开头"
-        "（双星号内为不超过 15 字的结论短语），后接带数值佐证的展开；不加序号与小标题。"
+        "要判断的不是美林时钟叫什么，而是增长离趋势多远、低通胀更像需求不足还是价格传导滞后。"
+        "以 phase 为模型标签。clock_period 的 GDP 是该年最新累计同比，gdp_trend 是五个年度观察的滚动中位数代理；"
+        "cpi_yoy 是同一统计年已发布月份 CPI 同比均值，不是最新月同比；2% 是模型分界，不是政策目标。"
+        "当前期和上年可见点的累计长度不同时，不说同比加快或环比放缓。"
+        "用当月 CPI/PPI、消费/固投、全国与 31 城失业率中的有用观测交叉检验；点出增长与价格、就业是否一致。"
+        "收束到下一次什么组合会确认或推翻结论，例如需求指标改善同时价格回暖，而不是只看一个象限。"
     ),
     "credit": (
-        "为「信用周期」板块写 3-5 句研究备忘录。框架语义：以 M2 同比相对其 12 月均线的偏离"
-        "（信贷脉冲）刻画货币条件松紧，脉冲>0 且上行=宽松，<0 且下行=紧缩，其余=中性。"
-        "快照字段：phase（当前阶段）、m2_yoy（M2 同比 %）、m2_yoy_delta（环比变化 pp）、"
-        "credit_impulse（信贷脉冲，M2 同比−12 月均线，pp）。"
-        "loan_month 是新增贷款观察月，new_rmb_loan、loan_yoy_change 分别为当月额与同比金额差（亿元）。"
-        "loan_yoy 为同比百分比；基数非正时为 null，只用金额差说明多增或少增，不从负基数反推比例。"
-        "写作结构：点明阶段与 M2 同比取值；用脉冲的符号与方向解释判定依据；"
-        "若脉冲与阶段存在张力（如脉冲为正但趋势走弱），指出矛盾；末句说明该货币条件对实体融资的含义。"
-        "输出格式：按上述结构分 3-4 行，每行一个要点，以「**核心判断**」开头"
-        "（双星号内为不超过 15 字的结论短语），后接带数值佐证的展开；不加序号与小标题。"
+        "判断货币边际是否放松、宽松有没有传到实体融资。先看 credit_month 的 M2 和 3 月平滑脉冲及其环比；"
+        "credit_impulse 是 M2 同比减其 12 月均值（百分点），不等于新增信贷或社融。沿用代码 phase，"
+        "只凭单月原始脉冲不能解释平滑阶段的方向或持续性。再比较 loan_month 的贷款净增量及近 12 月社融累计增量同比，"
+        "后者不是官方社融存量增速。贷款优先写同比多增或少增（亿元）；loan_yoy = 金额差÷去年同月绝对值，"
+        "负或很小基数时百分比只作辅助，不写成官方增长率；零基数不写百分比。"
+        "给出下一期货币与融资是否同向改善的判据，不把放贷、偿还或季节性归因写成已证实。"
     ),
     "inventory": (
-        "为「库存周期」板块写 3-5 句研究备忘录。框架语义：以官方制造业 PMI 相对荣枯线 50 刻画需求，"
-        "以工业增加值同比相对其 6 月均线刻画生产，四象限为主动补库/被动补库/主动去库/被动去库。"
-        "快照字段：phase（当前阶段）、pmi_official（官方制造业 PMI，点）、ip_yoy（工业增加值同比 %）。"
-        "写作结构：点明阶段及两项取值；说明需求（PMI）与生产（工业增加值）各自相对基准的位置；"
-        "若二者方向背离（如需求收缩但生产仍强），指出矛盾及其对库存方向的含义。"
-        "输出格式：按上述结构分 3-4 行，每行一个要点，以「**核心判断**」开头"
-        "（双星号内为不超过 15 字的结论短语），后接带数值佐证的展开；不加序号与小标题。"
+        "判断生产、需求和库存是否同步。用 inventory_month 的工业同比与六期均线，以及判定实际使用的 PMI 和 50 比较；"
+        "PMI 若沿用旧观测，说明滞后月数。phase 是景气代理，不是企业库存余额；工业 1–2 月合报不是单月实绩。"
+        "用同一期新订单、生产、原料库存与产成品库存分项区分需求拉动和被动积压。分项是扩散指数，"
+        "低于 50 不是库存绝对为负。若 RatingDog 制造业（pmi_caixin）与官方制造业同月分歧，"
+        "可指出样本分化，不能用民间数代替官方相位。结尾给下一期验证条件。"
     ),
     "debt": (
-        "为「债务周期」板块写 3-5 句研究备忘录。框架语义（达利欧口径）：以各部门杠杆率 4 季度变化"
-        "判定加/去杠杆（>+1pp 加杠杆，<-0.5pp 去杠杆），结合增长分方向合成总体阶段"
-        "（美丽去杠杆/丑陋去杠杆/加杠杆繁荣/加杠杆衰退/稳定增长/稳定收缩）。"
-        "快照字段：phase（总体阶段）、household/non_fin_corp/gov_total（居民/非金融企业/政府杠杆率，"
-        "占 GDP %）、household_change_4q/non_fin_corp_change_4q/gov_change_4q（各自 4 季度变化，pp）。"
-        "写作结构：点明总体阶段；分部门引用杠杆率取值与 4 季变化，指出哪个部门在驱动总体方向；"
-        "若部门间方向不一致（如政府加杠杆对冲居民去杠杆），点明对冲结构。"
-        "输出格式：按上述结构分 3-4 行，每行一个要点，以「**核心判断**」开头"
-        "（双星号内为不超过 15 字的结论短语），后接带数值佐证的展开；不加序号与小标题。"
+        "判断谁在加杠杆、谁在收缩、是否只是部门对冲。引用 debt_month 和近四季居民、企业、政府杠杆率变化"
+        "（占 GDP 的百分点），用 net_change_4q 核对总体方向；phase 是模型分类，不等同于经济质量或违约概率。"
+        "区分债务余额、杠杆率和融资流量；只有比率变动不能判断究竟是债务变化还是名义 GDP 分母变化。"
+        "如果政府加杠杆而居民去杠杆，解释这支持什么、不能证明什么，给出下一季哪个部门或比率改变会动摇判断。"
     ),
     "real_estate": (
-        "为「房地产」板块写 3-5 句研究备忘录。框架语义：三维评分（0-100，越高越支撑需求）——"
-        "杠杆空间（居民杠杆率相对 70% 上限的余量）、价格动能（项目当前跟踪的 10 个重点城市"
-        "新房环比 12 个月均值相对 100 的偏离，不可表述为全国 70 城全样本）、"
-        "利率环境（5 年期 LPR 相对其历史中位数的偏离）。"
-        "快照字段：composite_score（综合分）、leverage_space_score/price_momentum_score/rate_env_score"
-        "（三分量）、household_leverage（居民杠杆率 %）、leverage_space_pp（余量 pp）、"
-        "price_mom_12m（环比 12 月均值，100=持平）、lpr_5y（5 年期 LPR %）、rate_deviation_bp（偏离中位数，pp）。"
-        "写作结构：点明综合分与最强/最弱维度及各自取值；用底层取值解释得分来源；"
-        "若维度间存在张力（如利率宽松但价格动能仍弱），指出矛盾。"
-        "输出格式：按上述结构分 3-4 行，每行一个要点，以「**核心判断**」开头"
-        "（双星号内为不超过 15 字的结论短语），后接带数值佐证的展开；不加序号与小标题。"
+        "判断成交和价格是否企稳，融资条件宽松是否传到需求。优先用带日期的全国销售面积、投资累计同比和"
+        "10 城新房环比指数 12 期平均（100=环比持平；不是全国 70 城，也不是过去 12 个月累计涨幅）。"
+        "再用利率与居民杠杆率解释融资条件，不把 LPR 当实际按揭利率、把模型杠杆余量当真实购房能力。"
+        "分清销售、投资和价格；若方向分化，点明哪一项未验证，给出成交与价格怎样配合才算改善。"
     ),
     "fiscal_external": (
-        "为「财政与外需」板块写 3-5 句研究备忘录。框架语义：财政收入/支出累计同比刻画财政姿态，"
-        "出口同比（美元口径）与美国 ISM 制造业 PMI 刻画外需强弱。"
-        "快照字段：revenue_cum_yoy/expenditure_cum_yoy（财政收入/支出累计同比 %）、"
-        "exports_yoy（出口同比 %）、ism（美国 ISM 制造业 PMI，点；荣枯线 50）。"
-        "写作结构：点明财政收支两端的方向与取值（收>支或支>收的含义）；"
-        "再评估外需（出口同比 + ISM 相对 50 的位置）；若内需与外需方向背离，指出并解释其政策含义。"
-        "输出格式：按上述结构分 3-4 行，每行一个要点，以「**核心判断**」开头"
-        "（双星号内为不超过 15 字的结论短语），后接带数值佐证的展开；不加序号与小标题。"
+        "分别回答财政力度与外需是否改善，再讨论二者有没有共同支撑增长。财政收入、支出是全国一般公共预算累计同比，"
+        "只有同统计月才能直接比较；两条增速之差不等于赤字或财政脉冲。贸易引用当月美元口径，出口额增长不是出口量增长；"
+        "美国 ISM 是另一个月份可能不同的调查，只用于印证，不代表全部海外需求。"
+        "说清可验证的同步或背离，以及下一期应观察支出、出口与 ISM 中的哪两项。"
     ),
     "report": (
-        "撰写一份面向宏观投资者的完整中国宏观分析报告，篇幅 1500–2500 字。"
-        "必须依据数据快照中的 macro_score（总分、压力、置信度、五维分数与逐项原始值）、"
-        "六板块快照和对应短评；不得引用快照之外的数值、历史事实或政策事件。"
-        "报告使用 Markdown，按以下固定结构："
-        "## 核心结论；## 数据与置信度；## 增长与需求；## 价格与利润传导；"
-        "## 信用、货币与政策；## 债务与居民资产负债表；## 房地产；"
-        "## 财政与外需；## 结构与长期约束；## 矛盾与交叉验证；"
-        "## 情景与触发条件；## 观察清单。"
-        "每节按「观察事实 → 理论含义 → 交叉验证 → 本节判断」推进，段落优先，列表只用于观察清单。"
-        "核心结论必须说明当前宏观状态、最强支撑、最大拖累和置信度。"
-        "情景与触发条件必须同时给出基准、上行和下行三种情形；"
-        "结构与长期约束必须区分已有数据能够验证的部分和快照无法验证的未知项。"
-        "必须主动写出至少两个与主结论相反的证据；事实、推断、未知信息分别表述。"
-        "所有数字带单位和口径；没有快照数据时明确写“本期缺失”，不得编造。"
-        "不要给具体资产价格目标、买卖建议或仓位建议。"
-        "你只能使用宏观分析框架解释数据，不补充未被数据验证的新闻和制度背景。"
+        "写一份中国宏观研究报告，站在当前数据截面的投资研究视角，不给交易建议。"
+        "用 macro_score 说明整体状态、压力、置信度和贡献；用六板块及 demographics 核对机制与不确定性，"
+        "同批短评只作提纲，若它与快照冲突以快照为准。人口是历年统计，不解释当月波动。"
+        "固定 12 节：核心结论、数据与置信度、增长与需求、价格与利润传导、信用与政策、债务与居民资产负债表、"
+        "房地产、财政与外需、结构与长期约束、矛盾与交叉验证、情景与触发条件、观察清单；以本轮指定二级标题为准。"
+        "每节围绕一个问题展开，不在每节重复打分。写清哪项能改变主结论，哪项只是边际变化；"
+        "至少解释两个真实分歧（证据不够就说明），基准、上行、下行情景都给能回读到数据的触发条件。"
+        "避免把样本、方向或历史相关性当作已验证的传导。"
     ),
-    # overall：5 行标签式跨板块综合
     "overall": (
-        "写跨板块综合研判（不是逐板块复述），输出 5 行，每行以双星号标签开头、后接带数值佐证的展开。"
-        "必须读取快照中的 macro_score，不得自行把四相位相加："
-        "「**总判定**」引用 0–100 宏观扩张度、标签、压力与置信度，再用增长×通胀×信用×杠杆解释；"
-        "「**一致点**」指出 macro_score.components 中最主要的一致方向，并引用板块取值；"
-        "「**背离点**」指出贡献方向冲突最大的两个维度（如外需强而信用和财政弱）；"
-        "「**演化方向**」说明当前组合的可持续性以及最关键的下一阶段分叉；"
-        "「**风险信号**」列出一两个可验证的确认/证伪信号，说明会改变扩张度或压力中的哪一项。"
-        "全程不给投资建议，只做形势研判。"
+        "用五行说明当下经济最像什么，以及为什么。"
+        "「**总判定**」给扩张度、压力、置信度与一句宏观状态；三者不是上涨概率。"
+        "「**一致点**」用两条同向的实物或融资观测说明内生动力，不必逐节复述。"
+        "「**背离点**」点出相反的两项贡献或经济证据及其期次，说明谁支撑谁拖累。"
+        "「**演化方向**」说明主要支撑能否扩散，给出一项依赖的条件，不预测具体点位。"
+        "「**风险信号**」提出下一期一项确认与一项证伪指标及观察方向。"
     ),
 }
 
@@ -392,9 +388,9 @@ def _build_messages(snapshot: dict, tpls: dict) -> list[dict]:
             + f"\n- overall：{tpls['overall']}"
             # 格式契约在末尾全局重申（模型对末尾指令最敏感）；示例锚定预期形态。
             + '\n\n输出格式（对所有文本字段强制，优先级高于「连贯成段」的默认写法和上方各写作要求的默认结构）：'
-              '\n① 每个字段值都是要点式多行文本：每行一个要点，以 **核心判断** 开头'
-              '（双星号内为不超过 15 字的结论短语），后接一句带数值佐证的展开；'
-              '② overall 固定 5 行，依次以 **总判定** **一致点** **背离点** **演化方向** **风险信号** 开头；'
+              '\n① 每个板块写 3 行，依次回答当前判断、证据或矛盾、下一期看什么；'
+              '每行以 **短结论** 开头（不超过 15 字），后接简短展开，板块总长 180–320 字；'
+              '② overall 固定 5 行，共 280–500 字，依次以 **总判定** **一致点** **背离点** **演化方向** **风险信号** 开头；'
               '③ 字段值内的换行用 \\n 转义；'
               '\n示例（credit 字段的值）："**货币条件中性偏紧** M2 同比 7.7%，较上期回落 0.3 个百分点，'
               '信贷脉冲 -0.74 个百分点处于负区间。\\n**宽松确认尚未出现** 脉冲方向仍向下，'
@@ -407,10 +403,12 @@ def _build_messages(snapshot: dict, tpls: dict) -> list[dict]:
 
 
 def _section_messages(name: str, snapshot: dict, tpls: dict) -> list[dict]:
+    layout = ("固定五行，依次以 **总判定** **一致点** **背离点** **演化方向** **风险信号** 开头，总长 280–500 字。"
+              if name == "overall" else
+              "三行，每行以 **短结论** 开头，依次回答当前判断、证据或矛盾、下一期看什么，总长 180–320 字。")
     user = ("数据快照（JSON）：\n" + json.dumps(snapshot, ensure_ascii=False)
             + f"\n\n写作要求：{tpls[name]}"
-            + "\n请直接输出该板块的中文文本，不要 JSON、不要标题"
-            + "（本次调用例外：忽略系统提示中关于 JSON 输出的要求，只输出纯文本）。")
+            + "\n" + layout + "请直接输出中文文本，不要 JSON、总标题或代码围栏。")
     return [{"role": "system", "content": tpls["system"]},
             {"role": "user", "content": user}]
 
@@ -429,7 +427,7 @@ def _report_messages(snapshot: dict, parts: dict, tpls: dict,
         + "\n\n本次分段任务：只写以下章节，必须逐字使用给定的二级标题，"
           "不要写报告总标题、其他章节、前言或代码围栏：\n"
         + "\n".join(f"## {heading}" for heading in headings)
-        + "\n每节约 120–220 字；本段合计约 500–850 字。"
+        + "\n每节约 120–175 字；本段合计约 500–700 字。不重复其他章节判断。"
         + "\n\n本次是完整报告任务：忽略系统提示中“只输出 JSON”的格式要求，"
           "直接输出中文 Markdown。不要输出代码围栏、前言或生成过程。"
     )

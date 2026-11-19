@@ -126,7 +126,7 @@ function fmtNum(v: unknown): string {
   if (v == null || v === '' || (typeof v === 'number' && Number.isNaN(v))) return '—'
   return typeof v === 'number' ? v.toFixed(2) : String(v)
 }
-const axisTooltipFormatter = (params: any): string => {
+export const axisTooltipFormatter = (params: any): string => {
   const arr = Array.isArray(params) ? params : [params]
   if (!arr.length) return ''
   const p0 = arr[0]

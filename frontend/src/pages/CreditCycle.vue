@@ -41,12 +41,21 @@ const sfDm = computed<Rec[]>(() => data.value?.sf ?? [])           // date,total
 const ncDm = computed<Rec[]>(() => data.value?.nc ?? [])           // date,new_rmb_loan,loan_yoy → 2009-01
 const credit = computed<CycleFrame | null>(() => data.value?.credit ?? null)
 const latestLoan = computed(() => ncDm.value.findLast((row) => typeof row.new_rmb_loan === 'number'))
+const fmtLoan = (value: number) => value.toLocaleString('zh-CN', { maximumFractionDigits: 1 })
+function loanComparison(row: Rec) {
+  if (typeof row.new_rmb_loan !== 'number' || typeof row.loan_yoy_change !== 'number') return ''
+  const base = row.new_rmb_loan - row.loan_yoy_change
+  const amount = fmtLoan(Math.abs(row.loan_yoy_change))
+  const change = row.loan_yoy_change === 0 ? '同比持平' : `同比${row.loan_yoy_change < 0 ? '少' : '多'}增 ${amount} 亿元`
+  const method = base === 0 ? '零基数，不计算百分比' : base < 0 ? '百分比按去年绝对值计算' : ''
+  return `${change}；上年同月 ${fmtLoan(base)} 亿元${method ? `（${method}）` : ''}`
+}
 const loanNote = computed(() => {
   const row = latestLoan.value
-  if (!row || typeof row.loan_yoy === 'number' || typeof row.loan_yoy_change !== 'number') return ''
-  const amount = Math.abs(row.loan_yoy_change).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
-  const change = row.loan_yoy_change === 0 ? '同比持平' : `同比${row.loan_yoy_change < 0 ? '少' : '多'}增 ${amount} 亿元`
-  return `${String(row.date).slice(0, 7)}：${change}。上年同月基数不为正，因此不显示同比百分比。`
+  const comparison = row && loanComparison(row)
+  if (!row || !comparison) return ''
+  const percent = typeof row.loan_yoy === 'number' ? `；变动 ${fmtLoan(row.loan_yoy)}%` : ''
+  return `${String(row.date).slice(0, 7)}：${comparison}${percent}。`
 })
 
 // Options are built in computeds (not the template) so each rebuild yields one
@@ -58,7 +67,7 @@ const m1m2Opt = themedOption(() => buildMultiLine(m1m2Dm.value, [
 const spreadOpt = themedOption(() => (buildSpreadChart(spreadDm.value, 'm2_m1_spread')))
 const impulseOpt = themedOption(() => (buildCreditImpulseChart(credit.value?.series ?? [])))
 const sfOpt = themedOption(() => (buildBarLineCombo(sfDm.value, 'total', 'sf_stock_yoy', '当月社融增量', '近 12 月累计增量同比', '亿元', '%')))
-const ncOpt = themedOption(() => (buildBarLineCombo(ncDm.value, 'new_rmb_loan', 'loan_yoy', '当月新增贷款', '贷款同比', '亿元', '%')))
+const ncOpt = themedOption(() => (buildBarLineCombo(ncDm.value, 'new_rmb_loan', 'loan_yoy', '当月新增贷款', '同比变动', '亿元', '%', loanComparison)))
 </script>
 
 <template>
@@ -96,7 +105,7 @@ const ncOpt = themedOption(() => (buildBarLineCombo(ncDm.value, 'new_rmb_loan', 
       <EChart :option="sfOpt" height="300px" />
     </GraphCard>
 
-    <GraphCard title="新增人民币贷款与同比" tip="柱为当月新增人民币贷款，线为上年同月基数为正时的同比增速。基数为零或负值时，改用亿元比较同比多增或少增；左右轴共用零线。" :loading="loading" :error="error" @retry="load">
+    <GraphCard title="新增人民币贷款与同比" tip="柱为当月新增人民币贷款；线为（今年同月 − 去年同月）÷ 去年同月绝对值。分母为负也能比较，百分比符号与多增／少增方向一致。零基期只比较金额，小基期优先看金额；这不是官方公布的同比增速。" :loading="loading" :error="error" @retry="load">
       <p v-if="loanNote" class="mb-2 text-xs text-text-2">{{ loanNote }}</p>
       <EChart :option="ncOpt" height="300px" />
     </GraphCard>
