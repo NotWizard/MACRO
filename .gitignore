@@ -23,6 +23,11 @@ data/vintages/*
 data/last_run.json
 data/ai_config.json*
 data/.dashcache/
+data/ai_compute_cache/
+data/ai_compute_prompt.txt
+# 来源未明确授权转发的指数历史及核验材料仅留本地。
+data/ai_compute_evidence/*-semianalysis-*
+.impeccable/review/
 # 单飞锁：宏观刷新用 .refresh.lock、CRCL 采集用 .crcl_collect.lock（G09 新增），
 # 都是 flock 的运行期文件，用通配一并忽略，避免每次跑完冒出未跟踪文件。
 data/*.lock

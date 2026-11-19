@@ -1,0 +1,78 @@
+{
+  "schema_version": "ai-compute-report-v2",
+  "as_of": "2026-11-19",
+  "agent": "本地 Agent · Codex",
+  "data_hash": "c6b2a50a2a629da1302681383f86c1eeda117003a377ae064bab3a819f8f17a6",
+  "overall": "已披露的盈利还没普遍下滑，但部分芯片公司的 EPS 增速、几家整机厂的营收增速已回落。戴尔和 HPE 截至 7 月的财季新接订单增加，随后能多快确认收入仍待查证；订单覆盖有限，不能据此否定行业放缓。未来 EPS 是否已被下调，仍缺同一目标财季的可比共识记录。",
+  "summary": [
+    {
+      "id": "earnings",
+      "headline": "盈利仍增，四家增速放慢",
+      "text": "六家核心公司最新可比单季 EPS 同比均为正。NVIDIA、AMD、Micron、台积电的同比增速低于各自前季；Broadcom、Marvell 则加快。这里比较的是各公司自己的财季，不是相同自然季度。"
+    },
+    {
+      "id": "outlook",
+      "headline": "未来 EPS 是否下调仍未知",
+      "text": "已入库的部分收入指引不足以还原同目标期的修订，更不能代替分析师 EPS 共识。下一次应分别对照公司指引与同口径共识：实际盈利增长不是预期未被下调的证据。"
+    },
+    {
+      "id": "conditions",
+      "headline": "已披露样本接单增加，交付还要验证",
+      "text": "截至 9 月的季度，亚马逊和微软的现金资本开支均高于前季；戴尔和 HPE 截至 7 月的接单也增加。到 10 月，广达、鸿海的三月营收增速放慢，台积电却加快。投入、接单和营收是不同环节，还不能据此判断行业同步走弱。"
+    }
+  ],
+  "panels": {
+    "earnings": {
+      "headline": "EPS 增速放慢，不等于当季盈利下滑",
+      "evidence": "NVIDIA 截至 2026 年 7 月的单季稀释 EPS 较前季从 2.39 升到 2.46 美元，却因同比基期不同，增速从 214.5% 降到 127.8%；同期毛利率约 75%，未同向走弱。Broadcom 最新披露的 EPS 同比反而加快，说明不能从少数公司的减速推到整个样本。",
+      "watch": "下一份财报看 EPS 绝对值和营业利润率是否一起走弱，并核对税项和股数。只有找到同目标季、同口径的预期版本，才判断是否下修。"
+    },
+    "demand": {
+      "headline": "微软和亚马逊现金开支上升，云收入也增长",
+      "evidence": "截至 2026 年 9 月的季度，微软现金资本开支从 358.02 亿升至 393.67 亿美元，公司口径则从 410 亿升至 452 亿美元。后者计入新融资租赁，也受资产交付与付款时点影响，不能用两者的差额倒算租赁。亚马逊现金购置额从 542.08 亿升至 772.59 亿美元，包含 AWS 以外的集团支出。AWS 单季收入从 422.32 亿升至 459.84 亿美元、营业利润率约 38.7%；Google Cloud 收入从 247.68 亿升至 307.09 亿美元，含 TPU 系统销售。云收入增长可以交叉验证需求，但不是当期新开支已经赚回来的证据。",
+      "watch": "下一季先看同口径现金购置额、租赁和资本开支指引是否改变，再对照 AWS 与 Google Cloud 的收入和营业利润率。若支出持续加速而云利润率或经营现金连季走弱，再提高对回报承压的关注。"
+    },
+    "manufacturing": {
+      "headline": "戴尔和 HPE 新接订单增加，兑现速度仍待验证",
+      "evidence": "截至 7 月 31 日的财季，戴尔 AI 优化服务器新接订单从 244 亿升至 609 亿美元，期末在手订单从 513 亿升至 950 亿美元，已确认营收仅从 161 亿升至 164 亿美元。HPE 的 AI 系统新接订单从 18 亿升至 24 亿美元，积压从 59 亿升至 68 亿美元（均不含 AI 网络）。这支持这两家当季接单增加，但积压不能直接当下季营收。\n\n交付排期：鸿海 11 月 12 日预计第四季出货新一代 AI 机柜；纬颖 9 月 14 日称德州二期预计 2027 年第二季投产；SK 海力士 10 月 28 日披露计划年底前把 M15X 提升至最大产能以扩大 HBM4 生产。这些分别是出货预期或产能计划，不是已接订单金额。广达、鸿海、纬颖、纬创未补入可比订单曲线；合并月营收不能替代。",
+      "watch": "下一季看戴尔和 HPE 新订单是否仍有后续、戴尔确认营收是否提速，并查积压里有没有延期或取消。鸿海新一代机柜看第四季实际出货，不把预定窗口当作已经交付。"
+    },
+    "rental": {
+      "headline": "H100 长期基准回升，短期挂牌价没有一致上涨",
+      "evidence": "SemiAnalysis 的 H100 合成基准从 2026 年 1 月 28 日的 2.70 回到 11 月 17 日的 3.42 美元/GPU时，仍低于 2023 年 10 月的 8.75。GetDeploying 的 H100 周挂牌中位数在 11 月 9 日和 16 日约为 4.09、4.08，H200 同期却从 5.00 降至 4.72。基准和挂牌价各有用途，不能拼成一条线。",
+      "watch": "连续几周看同 SKU 的中位数和报价供应商数量；若变化只来自样本调整，不上升为市场结论。缺成交与容量数据仍不能判断利用率。"
+    },
+    "power": {
+      "headline": "运营容量在增加，设备交期仍可能卡住部分项目",
+      "evidence": "施耐德 2026 年 11 月 3 日美国版指南列出 LVDO A/B/C/D/F 平均 50 周、SURESET 中压系统 20–50 周；从释放制造起算，属于计划参考，不是承诺的项目交付日。Digital Realty 运营 IT 容量由 2025Q3 的 2,879 MW 升至 2026Q3 的 3,157 MW；容量增加与排期仍长可以同时发生。",
+      "watch": "下一版核对同产品、同地区交期，再查实际设备到场和项目接电。没有新披露就保留未知，不把租用容量、订单或排产当作已通电。"
+    },
+    "quality": {
+      "headline": "Dell 的成品库存和现金流出现背离，尚不能外推",
+      "evidence": "Dell 截至 2026 年 7 月 31 日的季度，产成品较前季由 9.35 亿升至 12.22 亿美元，库存周转天数由 32.2 天升至 44.5 天，单季经营现金流从 40.81 亿降至 22.25 亿美元。NVIDIA 最新可比季的产成品反而回落。前者值得关注，但单季不能断言滞销或全链现金回收恶化。",
+      "watch": "下季看 Dell 成品、应收和周转天数是否继续升，同时经营现金是否仍下滑。若库存回落、现金回升，应下调对持续积压的担忧。"
+    }
+  },
+  "sources": [
+    {"title": "NVIDIA · FY2027 Q2 业绩", "url": "https://investor.nvidia.com/news/press-release-details/2026/NVIDIA-Announces-Financial-Results-for-Second-Quarter-Fiscal-2027/default.aspx"},
+    {"title": "NVIDIA · SEC 财务数据", "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001045810.json"},
+    {"title": "Microsoft · FY2027 Q1 业绩", "url": "https://www.microsoft.com/en-us/investor/earnings/fy-2027-q1/press-release-webcast"},
+    {"title": "Microsoft · FY2027 Q1 法说会资本开支", "url": "https://www.microsoft.com/en-us/investor/events/fy-2027/earnings-fy-2027-q1"},
+    {"title": "Amazon · 2026 Q3 业绩", "url": "https://ir.aboutamazon.com/news-release/news-release-details/2026/Amazon-com-Announces-Third-Quarter-Results/"},
+    {"title": "Amazon · 2026 Q2 业绩与购置支出", "url": "https://ir.aboutamazon.com/news-release/news-release-details/2026/Amazon-com-Announces-Second-Quarter-Results/default.aspx"},
+    {"title": "Alphabet · 2026 Q2 Google Cloud 分部附注", "url": "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000071/goog-20260630.htm"},
+    {"title": "Alphabet · 2026 Q3 Google Cloud 分部附注", "url": "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000084/goog-20260930.htm"},
+    {"title": "台湾公开资讯观测站 · 2026 年 10 月月营收", "url": "https://mopsov.twse.com.tw/nas/t21/sii/t21sc03_115_10_0.html"},
+    {"title": "戴尔 · FY2027 Q2 AI 服务器订单、收入与积压", "url": "https://investors.delltechnologies.com/_assets/_fd06632c0c625ac8127aa6deaadb8836/delltechnologies/db/3576/34751/pdf/Q2_FY27_Performance_Review.pdf#page=10"},
+    {"title": "HPE · FY2026 Q3 AI 系统订单与积压", "url": "https://investors.hpe.com/~/media/Files/H/HP-Enterprise-IR/documents/q3-2026/q3-2026-earnings-presentation.pdf#page=9"},
+    {"title": "鸿海 · 2026 Q3 财报及第四季机柜出货展望", "url": "https://www.foxconn.com/en-us/press-center/press-releases/latest-news/2154"},
+    {"title": "纬颖 · 2026 年 9 月德州二期投产计划", "url": "https://www.wiwynn.com/news/wiwynn-strengthens-global-supply-chain-resilience-with-grand-opening-of-advanced-manufacturing-facility-in-texas"},
+    {"title": "SK 海力士 · 2026 Q3 业绩及 HBM4 扩产安排", "url": "https://news.skhynix.com/en/q3-2026-business-results/"},
+    {"title": "SemiAnalysis · 公开长期租价基准", "url": "https://gpu-index.semianalysis.com/"},
+    {"title": "GetDeploying · 周度挂牌价格与口径", "url": "https://getdeploying.com/dataset/gpu-prices"},
+    {"title": "施耐德 · 2026 年 11 月交期指南", "url": "https://download.se.com/files?p_Doc_Ref=Monthly_Lead&p_enDocType=Catalog&p_File_Name=Monthly%20Lead%20Times.pdf"},
+    {"title": "Digital Realty · 2026 Q3 补充报告", "url": "https://investor.digitalrealty.com/static-files/dbe7bde5-da83-4211-8f76-0f7624c48eab"},
+    {"title": "Dell · SEC 产成品库存序列", "url": "https://data.sec.gov/api/xbrl/companyconcept/CIK0001571996/us-gaap/InventoryFinishedGoodsNetOfReserves.json"},
+    {"title": "Dell · SEC 经营现金流序列", "url": "https://data.sec.gov/api/xbrl/companyconcept/CIK0001571996/us-gaap/NetCashProvidedByUsedInOperatingActivities.json"}
+  ]
+}

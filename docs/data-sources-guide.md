@@ -2,6 +2,19 @@
 
 > 更新宏观与 Circle 时，以[宏观经济与 Circle 数据更新手册](data-supplement-runbook.md)为唯一执行入口；本文件保留接口细节和带日期的实测记录。
 
+## AI 算力租价与本地报告（2026-11-17实测）
+
+- 客户 CapEx（2026-11-19 核验）：AMZN 毛购置支出由 SEC 特定标签自动取得，和财报核对；微软、Meta 的公司口径及 CoreWeave、Nebius 的现金购置额由 Agent 读法说会或现金流原文。详见[独立算力手册](ai-compute-runbook.md#图表与历史缺口)。
+- 制造订单（2026-11-19 核验）：戴尔 AI 优化服务器、HPE AI Systems 的季度披露由本地 Agent 读取官方业绩演示；只合并同口径历史，不以出货或集团收入替代已确认营收。排期和不定期披露见 [算力手册](ai-compute-runbook.md)。
+
+- GetDeploying公开数据文件 `https://getdeploying.com/dataset/gpu-prices/nvidia-h100.json` 可无key读取，H200/B200/B300替换slug；四种均取得53个真实周度点（2025-11-17至2026-11-16），共212项。元数据明确CC-BY-4.0；页面署名及链接授权。只取ON_DEMAND/无预留期的median_price，保存样本数及当前周暂定标记。带key的正式API不等于免费文件，未调用。
+- GetDeploying普通GPU介绍页在本地HTTP请求可返回403；开放JSON文件实测200。主取数走开放文件，不绕WAF。备用Lantern Works开放样本只有2026-10-27起短期历史，不能混成GetDeploying同一序列。
+- 浏览器路径已取得长期曲线：SemiAnalysis公开页实测200、无需登录/key，切换历史表的区间/中点并读取页面正常加载的/api/public-data。保存原始响应与截图，导入H100 1133点（2023-10-10起）、A100 1254点（2023-06-13起）、B200 526点（2025-06-08起），截至2026-11-17。以独立gpu_rental_composite指标分图展示，不与GetDeploying拼接；不是CC BY数据集，不声明其开放再分发许可。
+- SEC标准接口的EPS部分缺Q4；本轮由Agent读取官方IR/8-K的单季列补齐，不由全年减九个月。细节见 [算力手册](ai-compute-runbook.md)。
+- 经营判断与六板块解读仅由本地Agent报告发布，网页GET展示。已移除内置模型/prompt生成和网页写接口。
+- GetDeploying更早同源周价核查：免费文件加date_start不会扩大53周，H100 tracked_since虽为2024-07-08但不代表已取得。官方API有需key的100请求试用和完整周历史；公开趋势页则是不同的供应商等权中位数。Internet Archive未取得旧文件，长月度重建源存在上游再分发许可不确定，未导入这些候选；长期观察改用上述已取得的独立SemiAnalysis公开基准。详见算力手册及skill来源记录。
+- 施耐德Lead Times Guide官方PDF实测200并核对7页正文：2026-11-03美国版，LVDO A/B/C/D/F为50周、SURESET为20–50周（按单制造规划参考，从释放制造起算）。不代表具体项目承诺，已融入电力解读，不强制做定期图表。
+
 > 按数据类型分类的数据源参考文档。每类数据说明：数据源、请求方式、返回字段、使用示例。
 
 ---

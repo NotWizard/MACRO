@@ -28,6 +28,7 @@
 # 通过后再同步更新本行、requirements.lock 与 changeLog.md。
 akshare==1.18.83
 requests>=2.34.2,<3          # scripts/01_fetch_data.py · crcl_collect.py 直连数据源
+lxml>=6.1.1,<7              # AI 算力 MOPS 历史表解析；已在 lock 中
 yfinance>=1.4.1,<2           # crcl_collect.py 备用行情/估值源（惰性 import，缺失则降级）
 
 # ---- 分析核心（analysis/）----

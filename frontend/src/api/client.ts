@@ -211,7 +211,7 @@ export function invalidateCache(): void {
   cache.clear()
 }
 
-async function getJSON<T>(path: string, opts: ReqOpts = {}): Promise<T> {
+export async function getJSON<T>(path: string, opts: ReqOpts = {}): Promise<T> {
   const ttl = opts.ttlMs ?? DEFAULT_TTL_MS
   if (ttl > 0) {
     const hit = cache.get(path)

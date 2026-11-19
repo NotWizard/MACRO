@@ -1,0 +1,98 @@
+{
+  "schema_version": "ai-compute-report-v2",
+  "data_hash": "b9f8dcc746def1fe59d36c923e1091f2e5d18646114915774313abb961c54a7c",
+  "as_of": "2026-11-17",
+  "agent": "本地 Agent · Codex",
+  "overall": "样本公司的最新已披露盈利仍在增长，部分公司的 EPS 增速已放慢，但尚未看到交付、客户投入与盈利普遍同步转弱。未来 EPS 是否正在被下调，目前缺少可比的共识修订历史，仍无法确认；这不等于“没有下调”。",
+  "summary": [
+    {
+      "id": "earnings",
+      "headline": "EPS 同比仍增长，但增速已分化",
+      "text": "六家核心公司最新可比单季 EPS 同比均为正。NVIDIA、AMD、Micron、台积电的同比增速低于各自前季，Broadcom、Marvell则回升。这说明部分公司增长变慢，不是六家公司利润都已下降；各自财季也并不完全重合。"
+    },
+    {
+      "id": "outlook",
+      "headline": "未来盈利是否下修，证据仍不足",
+      "text": "当前保存了部分公司收入指引，但没有足够的同目标期修订记录，也没有合格的 EPS 共识历史。已实现 EPS 增长，不能证明未来盈利预期稳定；后续需比较同一目标财季、同一会计口径的指引与分析师预期。"
+    },
+    {
+      "id": "conditions",
+      "headline": "投入与交付仍增，瓶颈不能排除",
+      "text": "核心 ODM 最近三个月合计营收、已覆盖云收入和客户投入仍在增长，暂未形成多环节同步收缩。新增长期基准显示H100在前期下跌后回升，但租价不能直接推出利用率或EPS上修；电气订单、IT容量增长也不等于设备已按时交付、项目已接电。"
+    }
+  ],
+  "panels": {
+    "earnings": {
+      "headline": "部分公司的盈利增速回落，尚非普遍盈利收缩",
+      "evidence": "六家核心公司最新可比单季稀释 EPS 同比均增长。NVIDIA 由前季约214.5%降至127.8%，AMD由155.6%降至94.7%；Micron、台积电也放慢，Broadcom、Marvell则回升。应把“仍然增长但增速下降”与“盈利同比下降”分开，也不能把不同公司的财季当作同一自然季。",
+      "watch": "对照收入、营业利润率与 EPS 是否同向变化，排除税项、股数及一次性项目影响。未来盈利另看同目标期指引和共识修订；目前缺少合格修订历史，不判断“未下修”。"
+    },
+    "demand": {
+      "headline": "客户仍在投入，是否赚回投入要看收入与现金",
+      "evidence": "已覆盖的Microsoft、Amazon、Alphabet云业务仍有同比增长，现金PP&E支出显示客户继续建设。它与制造端营收扩张相互印证，但公司总Capex并非纯AI支出；现金购建、新增融资租赁、租赁还本也不能直接相加。RPO是待履约合同，不是当季使用量或已经到账的现金。",
+      "watch": "看新增设备投运后，云收入、云业务利润与经营现金能否持续增长，并核对RPO近端履约期限和客户集中度。投入扩张而收入与现金持续落后，才是更值得追踪的压力。"
+    },
+    "manufacturing": {
+      "headline": "核心整机月营收仍扩张，需防产品组合掩盖数量变化",
+      "evidence": "纬颖、广达、鸿海最近三个月合计营收同比约增长76.2%、116.1%、44.7%，这些交付样本尚未普遍收缩。客户持续投入与整机收入增长方向一致，但营收同时受售价、汇率及产品组合影响，并非AI服务器出货量。纬创与纬颖存在并表关系，不能相加作为全行业需求。",
+      "watch": "对照整机、电源散热、PCB、晶圆与封装的同口径变化。若多个环节连续走弱，并伴随订单取消或交付推迟，才更支持需求放缓；不能由一家公司的单月波动推断整个产业。"
+    },
+    "rental": {
+      "headline": "长期基准先跌后升，近期回升不等于回到早期高价",
+      "evidence": "浏览器取得的SemiAnalysis公开合成基准中，H100从2023-10-10的8.75美元/GPU时降至2026-01-28的2.70，2026-11-17回到3.42；B200从2026-03-17的3.68回到6.26。原有GetDeploying周度挂牌样本近期也上移，但它的全部挂牌中位数与SemiAnalysis供应商加权、并按适用范围结合合约调查的基准不是同一口径，因此分图观察，不连接或直接算价差。",
+      "watch": "关注同一基准的持续变化，并核对样本/方法修订及固定配置报价。新增历史是当前可见版本，不代表当时已经公布的可交易价格，也不能据此推出GPU利用率、成交量或EPS预期上修；历史已落盘，无需反复重扒整段。"
+    },
+    "power": {
+      "headline": "订单与运营容量扩张，不代表设备和接电瓶颈消失",
+      "evidence": "施耐德2026-11-03美国版交期指南中，LVDO A/B/C/D/F按单制造平均交期为50周，SURESET中压系统为20–50周；交期从释放制造起算，仅供规划，并非具体项目交付承诺。另一方面，Digital Realty同口径运营IT容量由2025Q3的2,879MW增至2026Q3的3,157MW，占用容量由2,602增至2,874MW。设备排期仍长与运营容量扩张可以同时存在；Eaton的TTM订单、期末积压也不能直接代替交期。",
+      "watch": "下次核对同产品、地区和定义的交期是否延长，并追踪变压器、开关实际交付和项目接电延期。没有新的产品表或项目进度就写未知，不把旧交期沿用为当前值；IT容量不是实耗电，宣传中的制造提速也不是客户当前排队时间。"
+    },
+    "quality": {
+      "headline": "库存增加未必是滞销，要与产成品和回款一起看",
+      "evidence": "原材料、在制品增长可能来自备产或架构切换；若产成品、存货计提与应收同时上升，而收入和现金转弱，才更值得警惕。DIO使用平均库存与销售成本，DSO使用平均贸易应收与收入；缺输入时不生成。云商服务器主要计入PP&E，不能从其存货推断GPU闲置。",
+      "watch": "对照盈利端和交付端，检查收入增长能否转为经营现金，以及库存、应收占用是否连续上升。关注库存分类、计提和付款条件的变化；不同商业模式不直接按周转天数排名，单季背离不等于趋势恶化。"
+    }
+  },
+  "sources": [
+    {
+      "title": "SemiAnalysis · 公开长期租价基准",
+      "url": "https://gpu-index.semianalysis.com/"
+    },
+    {
+      "title": "NVIDIA · SEC 财务数据",
+      "url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001045810.json"
+    },
+    {
+      "title": "NVIDIA · FY2027 Q2 业绩",
+      "url": "https://investor.nvidia.com/news/press-release-details/2026/NVIDIA-Announces-Financial-Results-for-Second-Quarter-Fiscal-2027/default.aspx"
+    },
+    {
+      "title": "台积电 · 2026 Q3 业绩",
+      "url": "https://pr.tsmc.com/english/news/3346"
+    },
+    {
+      "title": "Microsoft · FY2027 Q1 业绩",
+      "url": "https://www.microsoft.com/en-us/investor/earnings/fy-2027-q1/press-release-webcast"
+    },
+    {
+      "title": "Amazon · 2026 Q3 业绩",
+      "url": "https://ir.aboutamazon.com/news-release/news-release-details/2026/Amazon-com-Announces-Third-Quarter-Results/"
+    },
+    {
+      "title": "GetDeploying · 周度租价与口径",
+      "url": "https://getdeploying.com/dataset/gpu-prices"
+    },
+    {
+      "title": "Eaton · 2026 Q3 业绩",
+      "url": "https://www.eaton.com/us/en-us/company/news-insights/news-releases/2026/eaton-reports-record-third-quarter-2026-results.html"
+    },
+    {
+      "title": "Digital Realty · 2026 Q3 补充报告",
+      "url": "https://investor.digitalrealty.com/static-files/dbe7bde5-da83-4211-8f76-0f7624c48eab"
+    },
+    {
+      "title": "施耐德 · 2026年11月交期指南",
+      "url": "https://download.se.com/files?p_Doc_Ref=Monthly_Lead&p_enDocType=Catalog&p_File_Name=Monthly%20Lead%20Times.pdf"
+    }
+  ]
+}

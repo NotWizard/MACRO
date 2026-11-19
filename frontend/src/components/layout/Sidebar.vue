@@ -19,6 +19,7 @@ const groups = [
   {
     label: '追踪与配置',
     items: [
+      { to: '/ai-compute', label: 'AI 算力全景', icon: '▤' },
       { to: '/crcl-monitor', label: 'CRCL 监控', icon: '◒' },
       { to: '/ai-settings', label: 'AI 设置', icon: '⚙' },
     ],

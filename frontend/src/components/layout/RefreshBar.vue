@@ -45,7 +45,7 @@ function trigger() {
         @click="filters.applyPreset(p)"
       >{{ p === 'ALL' ? '全部' : p }}</button>
     </div>
-    <div v-else class="hidden lg:block shrink-0 text-[11px] text-text-3">本页数据不受全局日期范围影响</div>
+    <div v-else-if="route.path !== '/ai-compute'" class="hidden lg:block shrink-0 text-[11px] text-text-3">本页数据不受全局日期范围影响</div>
 
     <div v-if="showDateFilter" class="hidden sm:block shrink-0 w-px h-4 bg-border" />
 

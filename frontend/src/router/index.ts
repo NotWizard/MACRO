@@ -29,6 +29,7 @@ export const router = createRouter({
     { path: '/fiscal-external', component: () => import('../pages/FiscalExternal.vue'), meta: { title: '财政与外需', icon: '◫', dateFilter: true, refreshKind: 'macro' } },
     // CRCL reads its own DB and ignores the macro date filter → the global bar
     // hides those controls instead of showing dead ones (FE-H4).
+    { path: '/ai-compute', component: () => import('../pages/AiCompute.vue'), meta: { title: 'AI 算力全景', icon: '▤', dateFilter: false, refreshKind: null } },
     { path: '/crcl-monitor', component: () => import('../pages/CrclMonitor.vue'), meta: { title: 'CRCL 监控', icon: '◒', dateFilter: false, refreshKind: 'crcl' } },
     { path: '/ai-settings', component: () => import('../pages/AISettings.vue'), meta: { title: 'AI 设置', icon: '⚙', dateFilter: false, refreshKind: null } },
     { path: '/:pathMatch(.*)*', redirect: '/overview' },
